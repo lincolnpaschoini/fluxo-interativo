@@ -1550,8 +1550,8 @@ function App() {
               <span style={{ fontSize: 12, color: '#6b6b66' }}>Visualização pública · somente leitura</span>
             ) : !editorMode ? (
               <>
-                {IS_ADMIN && <button className="btn-ghost" onClick={enterEditor}>✎ Editar</button>}
-                {IS_ADMIN && <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Backup</button>}
+                <button className="btn-ghost" onClick={enterEditor}>✎ {IS_ADMIN ? 'Editar' : 'Editar'}</button>
+                <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Salvar</button>
                 {IS_ADMIN && <button className="btn-primary" onClick={() => setShowPublish(true)}>Publicar</button>}
               </>
             ) : (
