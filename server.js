@@ -48,24 +48,25 @@ function loadLiveDoc() {
   return null;
 }
 
-const DEFAULT_USERS_FILE = path.join(__dirname, 'data', 'users.json');
-
 function loadUsers() {
-  try { 
+  try {
     if (fs.existsSync(USERS_FILE)) {
       const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
       if (users.admins && users.admins.length > 0) return users;
     }
-    if (fs.existsSync(DEFAULT_USERS_FILE)) {
-      const defaultUsers = JSON.parse(fs.readFileSync(DEFAULT_USERS_FILE, 'utf8'));
-      if (defaultUsers.admins && defaultUsers.admins.length > 0) {
-        try { fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), 'utf8'); } catch(e) {}
-        return defaultUsers;
-      }
+    // Variável de ambiente DEFAULT_USERS permite seed de usuários no Render sem disco persistente
+    if (process.env.DEFAULT_USERS) {
+      try {
+        const envUsers = JSON.parse(process.env.DEFAULT_USERS);
+        if (envUsers.admins && envUsers.admins.length > 0) {
+          try { fs.writeFileSync(USERS_FILE, JSON.stringify(envUsers, null, 2), 'utf8'); } catch(e) {}
+          return envUsers;
+        }
+      } catch(e) { console.log('>>> DEFAULT_USERS env var inválido:', e.message); }
     }
-    return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln' }] };
+    return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln Maxwel' }] };
   }
-  catch(e) { return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln' }] }; }
+  catch(e) { return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln Maxwel' }] }; }
 }
 function saveUsers(data) {
   try {
@@ -395,6 +396,18 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, data: loadUsers() }); return;
   }
 
+  if (req.url === '/api/users/export' && req.method === 'GET') {
+    const session = getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false, error: 'Acesso restrito' }); return; }
+    const users = loadUsers();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Disposition': 'attachment; filename="users.json"',
+    });
+    res.end(JSON.stringify(users, null, 2));
+    return;
+  }
+
   if (req.url === '/api/users/save' && req.method === 'POST') {
     const session = getSession(req);
     if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false, error: 'Acesso restrito' }); return; }
@@ -447,11 +460,12 @@ const server = http.createServer(async (req, res) => {
       const m = (data || '').match(/^data:([^;]+);base64,(.+)$/s);
       if (!m) { sendJson(res, 400, { ok: false, error: 'Dados inválidos' }); return; }
       const ext = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      const buffer = Buffer.from(m[2], 'base64');
-      if (process.env.CLOUDINARY_API_SECRET) {
+      try {
         const uploadResult = await cloudinary.uploader.upload(`data:${m[1]};base64,${m[2]}`, { folder: 'fluxograma' });
         sendJson(res, 200, { ok: true, url: uploadResult.secure_url });
-      } else {
+      } catch(cloudErr) {
+        console.log('>>> CLOUDINARY ERRO:', cloudErr.message, '— usando armazenamento local');
+        const buffer = Buffer.from(m[2], 'base64');
         const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
         fs.writeFileSync(path.join(IMAGES_DIR, safe), buffer);
         sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
