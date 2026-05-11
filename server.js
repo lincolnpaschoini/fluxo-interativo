@@ -258,11 +258,13 @@ const server = http.createServer(async (req, res) => {
 
   // ── Microsoft OAuth ───────────────────────────────────────────────────
 
-  const baseUrl = new URL(req.url, `http://localhost:${PORT}`);
+  const host = req.headers.host || `localhost:${PORT}`;
+  const protocol = host.includes('localhost') ? 'http' : 'https';
+  const baseUrl = new URL(req.url, `${protocol}://${host}`);
   const pathname = baseUrl.pathname;
 
   if (pathname === '/auth/microsoft' && req.method === 'GET') {
-    const redirectUri = `http://localhost:8080/auth/callback`;
+    const redirectUri = `${protocol}://${host}/auth/callback`;
     const scope = 'openid email profile User.Read';
     const state = crypto.randomBytes(8).toString('hex');
     const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize?` +
@@ -278,7 +280,7 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/auth/callback' && req.method === 'GET') {
     const code = baseUrl.searchParams.get('code');
-    const redirectUri = `http://localhost:8080/auth/callback`;
+    const redirectUri = `${protocol}://${host}/auth/callback`;
 
     if (!code) {
       res.writeHead(400, { 'Content-Type': 'text/html' });
