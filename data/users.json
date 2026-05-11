@@ -1,4 +1,11 @@
 {
-  "admins": [],
-  "users": []
+  "admins": [
+    "lincoln.maxwel@paschoini.adv.br"
+  ],
+  "users": [
+    {
+      "email": "lincoln.maxwel@paschoini.adv.br",
+      "name": "Lincoln Maxwel"
+    }
+  ]
 }
