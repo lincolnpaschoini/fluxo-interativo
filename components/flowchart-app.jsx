@@ -755,7 +755,7 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
             {status === 'saved' && (
               <div style={{ textAlign: 'center', padding: '16px 0' }}>
                 <div style={{ fontSize: 36, marginBottom: 8 }}>✓</div>
-                <p style={{ color: '#3d8c4d', fontWeight: 600, margin: '0 0 16px' }}>Backup salvo com sucesso na pasta <code>backup/</code>!</p>
+                <p style={{ color: '#3d8c4d', fontWeight: 600, margin: '0 0 16px' }}>Backup salvo com sucesso!</p>
                 <button className="btn-ghost" onClick={onClose}>Fechar</button>
               </div>
             )}
@@ -1143,6 +1143,7 @@ function App() {
   const [openNode, setOpenNode] = React.useState(null);
   const [showPublish, setShowPublish] = React.useState(false);
   const [showBackup, setShowBackup] = React.useState(false);
+  const [quickSaveStatus, setQuickSaveStatus] = React.useState('idle'); // idle | saving | saved | error
   const [copiedNode, setCopiedNode] = React.useState(null);
   const [lastPublishedSlug, setLastPublishedSlug] = React.useState(() => {
     try { return localStorage.getItem('fluxograma:last-slug') || ''; } catch (e) { return ''; }
@@ -1151,6 +1152,33 @@ function App() {
   const [showSimulatePanel, setShowSimulatePanel] = React.useState(false);
   const [userList, setUserList] = React.useState({ admins: [], users: [] });
   const [updateToast, setUpdateToast] = React.useState(false);
+
+  // Salva diretamente sobre o backup existente (sem diálogo)
+  const quickSave = async () => {
+    if (quickSaveStatus === 'saving') return;
+    setQuickSaveStatus('saving');
+    let subflows = {};
+    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    try {
+      const listData = await fetch('/api/backup/list').then(r => r.json());
+      const backups = listData.files || [];
+      const body = { data: { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows } };
+      if (backups.length > 0) {
+        body.overwriteFile = backups[0].filename;
+      } else {
+        body.name = 'fluxo';
+      }
+      const saveData = await fetch('/api/backup/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+      setQuickSaveStatus(saveData.ok ? 'saved' : 'error');
+    } catch (e) {
+      setQuickSaveStatus('error');
+    }
+    setTimeout(() => setQuickSaveStatus('idle'), 2500);
+  };
 
   // carrega fluxo publicado quando em modo de visualização pública
   const loadPublished = React.useCallback((showToast) => {
@@ -1550,8 +1578,18 @@ function App() {
               <span style={{ fontSize: 12, color: '#6b6b66' }}>Visualização pública · somente leitura</span>
             ) : !editorMode ? (
               <>
-                <button className="btn-ghost" onClick={enterEditor}>✎ {IS_ADMIN ? 'Editar' : 'Editar'}</button>
-                <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Salvar</button>
+                <button className="btn-ghost" onClick={enterEditor}>✎ Editar</button>
+                <button
+                  className="btn-ghost"
+                  onClick={quickSave}
+                  disabled={quickSaveStatus === 'saving'}
+                  style={quickSaveStatus === 'saved' ? { color: '#3d8c4d', fontWeight: 600 } : quickSaveStatus === 'error' ? { color: '#a52828' } : {}}
+                >
+                  {quickSaveStatus === 'saving' ? '💾 Salvando…' :
+                   quickSaveStatus === 'saved'  ? '✓ Salvo!' :
+                   quickSaveStatus === 'error'  ? '✗ Erro ao salvar' :
+                   '💾 Salvar'}
+                </button>
                 {IS_ADMIN && <button className="btn-primary" onClick={() => setShowPublish(true)}>Publicar</button>}
               </>
             ) : (
