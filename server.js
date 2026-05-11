@@ -322,18 +322,28 @@ const server = http.createServer(async (req, res) => {
       }
 
       const users = loadUsers();
-      let userRecord = users.users.find(u => u.email === email);
+      const userRecord = users.users.find(u => u.email === email);
 
-      if (!userRecord) {
-        users.users.push({ email, name: userResponse.data.displayName || email.split('@')[0] });
-      }
-
-      if (!users.admins.includes(email)) {
+      // Primeiro acesso: permitir automatico (cria usuario e admin)
+      if (!userRecord && users.admins.length === 0 && users.users.length === 0) {
         users.admins.push(email);
+        users.users.push({ email, name: userResponse.data.displayName || email.split('@')[0] });
+        saveUsers(users);
       }
-      saveUsers(users);
+      // Ja tem usuarios: verificar se esta cadastrado
+      else if (!userRecord && !users.users.some(u => u.email === email)) {
+        res.writeHead(403, { 'Content-Type': 'text/html' });
+        res.end('<h1>Acesso Negado</h1><p>Seu email não está cadastrado no sistema.<br>Solicite acesso ao administrador.</p><a href="/login">Voltar</a>');
+        return;
+      }
+      // Se ja tem usuarios e ele nao esta cadastrado, deny
+      else if (!users.admins.includes(email) && !users.users.some(u => u.email === email)) {
+        res.writeHead(403, { 'Content-Type': 'text/html' });
+        res.end('<h1>Acesso Negado</h1><p>Seu email não está cadastrado no sistema.<br>Solicite acesso ao administrador.</p><a href="/login">Voltar</a>');
+        return;
+      }
 
-      const isAdmin = true;
+      const isAdmin = users.admins.includes(email);
       const name = userRecord?.name || userResponse.data.displayName || email.split('@')[0];
       const token = crypto.randomBytes(24).toString('hex');
       sessions.set(token, { email, isAdmin, name });
