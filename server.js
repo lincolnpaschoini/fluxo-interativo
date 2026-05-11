@@ -48,12 +48,26 @@ function loadLiveDoc() {
   return null;
 }
 
+const DEFAULT_USERS_FILE = path.join(__dirname, 'data', 'users.json');
+
 function loadUsers() {
-  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); }
+  try { 
+    if (fs.existsSync(USERS_FILE)) {
+      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    }
+    if (fs.existsSync(DEFAULT_USERS_FILE)) {
+      const defaultUsers = JSON.parse(fs.readFileSync(DEFAULT_USERS_FILE, 'utf8'));
+      fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), 'utf8');
+      return defaultUsers;
+    }
+    return { admins: [], users: [] };
+  }
   catch(e) { return { admins: [], users: [] }; }
 }
 function saveUsers(data) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch(e) { console.log('>>> ERRO saveUsers:', e.message); }
 }
 
 const sessions = new Map();
@@ -429,14 +443,18 @@ const server = http.createServer(async (req, res) => {
       if (!m) { sendJson(res, 400, { ok: false, error: 'Dados inválidos' }); return; }
       const ext = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
       const buffer = Buffer.from(m[2], 'base64');
-      const uploadResult = await new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream({ folder: 'fluxograma' }, (err, result) => {
-          if (err) reject(err);
-          else resolve(result);
-        }).end(buffer);
-      });
-      sendJson(res, 200, { ok: true, url: uploadResult.secure_url });
-    } catch(e) { sendJson(res, 500, { ok: false, error: e.message }); }
+      if (process.env.CLOUDINARY_API_SECRET) {
+        const uploadResult = await cloudinary.uploader.upload(`data:${m[1]};base64,${m[2]}`, { folder: 'fluxograma' });
+        sendJson(res, 200, { ok: true, url: uploadResult.secure_url });
+      } else {
+        const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+        fs.writeFileSync(path.join(IMAGES_DIR, safe), buffer);
+        sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
+      }
+    } catch(e) { 
+      console.log('>>> ERRO UPLOAD:', e.message);
+      sendJson(res, 500, { ok: false, error: e.message }); 
+    }
     return;
   }
 
