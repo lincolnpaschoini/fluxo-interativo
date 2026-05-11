@@ -13,9 +13,9 @@ const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || '';
 const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || '';
 
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'root',
-  api_key: process.env.CLOUDINARY_API_KEY || '856997781274259',
-  api_secret: process.env.CLOUDINARY_API_SECRET || 'tQzsKOQo3Yb6howiNONMB1u8BCo',
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'paschoini',
+  api_key: process.env.CLOUDINARY_API_KEY || '696232997823252',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'Gj578DU5_SMLCBP_tktn6-yqc2E',
 });
 
 const BACKUP_DIR    = path.join(__dirname, 'backup');
