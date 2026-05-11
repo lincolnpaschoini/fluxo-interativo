@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrar — Fluxos</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4ff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1a1a1a;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(31, 93, 187, 0.12);
+      padding: 44px 48px;
+      width: 100%;
+      max-width: 400px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 32px;
+    }
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #1f5dbb 0%, #3d8c4d 100%);
+      border-radius: 8px;
+    }
+    .logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    p.sub { font-size: 13.5px; color: #6b6b66; margin-bottom: 28px; line-height: 1.5; }
+    .btn-microsoft {
+      padding: 12px 16px;
+      background: #fff;
+      color: #1f5dbb;
+      border: 1.5px solid #1f5dbb;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .btn-microsoft:hover { background: #f0f4ff; }
+    .note {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #a0a09a;
+      text-align: center;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-mark"></div>
+      <span class="logo-text">Fluxos</span>
+    </div>
+    <h1>Entrar no sistema</h1>
+    <p class="sub">Use sua conta corporativa Microsoft para acessar.</p>
+
+    <button class="btn-microsoft" onclick="window.location.href='/auth/microsoft'">
+      <svg width="18" height="18" viewBox="0 0 21 20"><path fill="#f25022" d="M1 1h9v9H1z"/><path fill="#00a4ef" d="M11 1h9v9H11z"/><path fill="#7fba00" d="M1 11h9v9H1z"/><path fill="#ffb900" d="M11 11h9v9H11z"/></svg>
+      Entrar com Microsoft
+    </button>
+    <p class="note">Primeiro acesso? O primeiro usuário a entrar torna-se administrador automaticamente.</p>
+  </div>
+</body>
+</html>

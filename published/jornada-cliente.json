@@ -1,0 +1,973 @@
+{
+  "nodes": [
+    {
+      "id": "src_indicacao",
+      "label": "Indicação",
+      "x": 40,
+      "y": 60,
+      "w": 160,
+      "h": 45,
+      "shape": "pill",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "src_cross",
+      "label": "Cross Sell",
+      "x": 40,
+      "y": 145,
+      "w": 160,
+      "h": 45,
+      "shape": "pill",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "src_mkt",
+      "label": "Marketing\nDigital",
+      "x": 40,
+      "y": 224,
+      "w": 160,
+      "h": 45,
+      "shape": "pill",
+      "color": "blue",
+      "allowedUsers": [
+        "aymee.coelho@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "src_publicas",
+      "label": "Lista Públicas",
+      "x": 40,
+      "y": 305,
+      "w": 160,
+      "h": 45,
+      "shape": "pill",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "src_setoriais",
+      "label": "Listas Setoriais",
+      "x": 40,
+      "y": 385,
+      "w": 160,
+      "h": 45,
+      "shape": "pill",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "alimentacao",
+      "label": "ALIMENTAÇÃO\nLEADS NO PIPEDRIVE",
+      "x": 427,
+      "y": 92,
+      "w": 200,
+      "h": 85,
+      "shape": "rect",
+      "color": "blue",
+      "allowedUsers": [
+        "joao.neto@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "robo",
+      "label": "ROBO DE\nHIGIENIZAÇÃO\nPH3A / LEMIT /\nRECEITAWS",
+      "x": 427,
+      "y": 326,
+      "w": 200,
+      "h": 85,
+      "shape": "rect",
+      "color": "blue",
+      "allowedUsers": [
+        "joao.neto@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "d_qualifica",
+      "label": "Pré\nqualificação\npela IA?",
+      "x": 766,
+      "y": 134,
+      "w": 120,
+      "h": 110,
+      "shape": "diamond",
+      "color": "yellow",
+      "hasSubflow": false
+    },
+    {
+      "id": "growth",
+      "label": "GROWTH MACHINE\nTI INSERE NA\nFERRAMENTA\n",
+      "x": 726,
+      "y": 326,
+      "w": 200,
+      "h": 85,
+      "shape": "rect",
+      "color": "blue",
+      "allowedUsers": [
+        "joao.neto@paschoini.adv.br"
+      ],
+      "period": "3 HORAS",
+      "periodFontSize": 14
+    },
+    {
+      "id": "sdr_pipe",
+      "label": "SDR\nRecebe no\nPIPEDRIVE\nTRABALHO\nCONSTANTE",
+      "x": 1069,
+      "y": 59,
+      "w": 133,
+      "h": 130,
+      "shape": "rect",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "d_reuniao",
+      "label": "Reunião\nagendada?",
+      "x": 1369,
+      "y": 69,
+      "w": 120,
+      "h": 110,
+      "shape": "diamond",
+      "color": "yellow",
+      "hasSubflow": false
+    },
+    {
+      "id": "sdr_reagend",
+      "label": "SDR /\nREAGENDAMENTO\nACOMPANHAMENTO",
+      "x": 1605,
+      "y": 81.5,
+      "w": 200,
+      "h": 85,
+      "shape": "rect",
+      "color": "blue",
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "bgc",
+      "label": "COMERCIAL\nSOLICITA \nBGC - IDONEUM",
+      "x": 1335,
+      "y": 270,
+      "w": 185,
+      "h": 110,
+      "shape": "rect",
+      "color": "green",
+      "period": "1 DIA",
+      "periodFontSize": 14,
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "orcamento",
+      "label": "ORÇAMENTO /\nPROPOSTA TÉCNICA\nPRECIFICADA\nHEAD BU",
+      "x": 1578,
+      "y": 270,
+      "w": 185,
+      "h": 110,
+      "shape": "rect",
+      "color": "green",
+      "period": "1 DIA",
+      "periodFontSize": 14
+    },
+    {
+      "id": "reuniao_apre",
+      "label": "REUNIÃO CLIENTE\nAPRESENTAÇÃO\nINICIAL\nORÇAMENTO",
+      "x": 1459.5,
+      "y": 438,
+      "w": 136,
+      "h": 110,
+      "shape": "rect",
+      "color": "green"
+    },
+    {
+      "id": "ata",
+      "label": "ATA GERADA\nCOMERCIAL\nDIA 2",
+      "x": 1457,
+      "y": 592,
+      "w": 141,
+      "h": 100,
+      "shape": "rect",
+      "color": "green",
+      "period": " 3 HORAS",
+      "periodFontSize": 14
+    },
+    {
+      "id": "controladoria",
+      "label": "CONTROLADORIA\nPRAZOS ATRIBUÍDOS\nPIPEDRIVE / LEGAL ONE",
+      "x": 1836.5,
+      "y": 592,
+      "w": 170,
+      "h": 100,
+      "shape": "rect",
+      "color": "green",
+      "allowedUsers": [
+        "jessica.aguiar@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "proposta_tec",
+      "label": "PROPOSTA TÉCNICA\nHEAD BU / \n\nPROPOSTA COMERCIAL\nCOMERCIAL",
+      "x": 1842,
+      "y": 779,
+      "w": 159,
+      "h": 150,
+      "shape": "rect",
+      "color": "green",
+      "period": "1 DIA / 1 DIA",
+      "periodFontSize": 14
+    },
+    {
+      "id": "reuniao_final",
+      "label": "REUNIÃO FINAL\nDE ACEITE",
+      "x": 1578,
+      "y": 809,
+      "w": 200,
+      "h": 90,
+      "shape": "rect",
+      "color": "green"
+    },
+    {
+      "id": "d_aceitou",
+      "label": "Cliente aceitou\na proposta?",
+      "x": 1427,
+      "y": 799,
+      "w": 120,
+      "h": 110,
+      "shape": "diamond",
+      "color": "yellow",
+      "hasSubflow": false
+    },
+    {
+      "id": "envio_final",
+      "label": "ENVIO PROPOSTA\nFINAL / CONTRATO\nASSISTENTE\nCOMERCIAL\nSOBE CLICK SIGN\n",
+      "x": 1171,
+      "y": 774,
+      "w": 163,
+      "h": 160,
+      "shape": "rect",
+      "color": "green",
+      "period": "1 DIA",
+      "periodFontSize": 14
+    },
+    {
+      "id": "assinatura",
+      "label": "ASSINATURA\nINTERNA\nCLICK SIGN\n",
+      "x": 990,
+      "y": 794,
+      "w": 112,
+      "h": 120,
+      "shape": "rect",
+      "color": "green",
+      "period": "1 DIA",
+      "periodFontSize": 14
+    },
+    {
+      "id": "d_assinado",
+      "label": "Contrato\nassinado?",
+      "x": 751,
+      "y": 799,
+      "w": 120,
+      "h": 110,
+      "shape": "diamond",
+      "color": "yellow",
+      "hasSubflow": false
+    },
+    {
+      "id": "follow_up",
+      "label": "COMERCIAL\nFAZ FOLLOW UP\nNO CLIENTE",
+      "x": 703,
+      "y": 558,
+      "w": 200,
+      "h": 110,
+      "shape": "rect",
+      "color": "orange",
+      "period": "2 DIAS",
+      "periodFontSize": 14,
+      "allowedUsers": [
+        "paula.chern@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "ctrl_email",
+      "label": "CONTROLADORIA\nRECEBE EMAIL\nAUTOMÁTICO\nCLICK SIGN",
+      "x": 399,
+      "y": 689.5,
+      "w": 142,
+      "h": 159,
+      "shape": "rect",
+      "color": "orange",
+      "allowedUsers": [
+        "jessica.aguiar@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "ctrl_cadastro",
+      "label": "CONTROLADOR IA\nCADASTRO\nCONTRATO /\nCONTATO /\nREGRA DE COBRANÇA\nLEGAL ONE",
+      "x": 129,
+      "y": 689,
+      "w": 180,
+      "h": 160,
+      "shape": "rect",
+      "color": "orange",
+      "allowedUsers": [
+        "jessica.aguiar@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "financeiro",
+      "label": "FINANCEIRO\nRECEBE REGRAS\nDE COBRANÇA\nVIA LEGAL ONE\n",
+      "x": 147.5,
+      "y": 484,
+      "w": 143,
+      "h": 140,
+      "shape": "rect",
+      "color": "orange",
+      "period": "1 DIA",
+      "periodFontSize": 14,
+      "allowedUsers": [
+        "emerson.bertin@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "nf",
+      "label": "EMITIR NOTA\nFISCAL\nPAGAMENTO\nEMITIR BOLETO\n",
+      "x": 399,
+      "y": 482.5,
+      "w": 142,
+      "h": 143,
+      "shape": "rect",
+      "color": "orange",
+      "period": "1 DIA",
+      "periodFontSize": 14,
+      "allowedUsers": [
+        "emerson.bertin@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "ctrl_mkt",
+      "label": "CONTROLADORIA\nENCAMINHA PARA\nMARKETING\nINFORMAÇÃO DE\nCONTRATO ASSINADO",
+      "x": 370,
+      "y": 946,
+      "w": 200,
+      "h": 150,
+      "shape": "rect",
+      "color": "orange",
+      "allowedUsers": [
+        "jessica.aguiar@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "email_comm",
+      "label": "EMAIL INTERNO\n(TIME) /\nEXTERNO (CLIENTE)\nCOMUNICANDO\nNOVO CONTRATO",
+      "x": 126,
+      "y": 946,
+      "w": 180,
+      "h": 150,
+      "shape": "rect",
+      "color": "orange",
+      "allowedUsers": [
+        "aymee.coelho@paschoini.adv.br"
+      ]
+    },
+    {
+      "id": "text_nds3fs",
+      "label": "TERÁ PRE-QUALIFICAÇÃO DE LEADS\nPOR IA DE PROSPECÇÃO.\nPAULA RESPONDE",
+      "x": 631,
+      "y": 89,
+      "w": 297,
+      "h": 60,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false,
+      "fontSize": 16
+    },
+    {
+      "id": "text_h9pe0o",
+      "label": "COMERCIAL\nSLA - 3H",
+      "x": 257,
+      "y": 83,
+      "w": 168,
+      "h": 40,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false
+    },
+    {
+      "id": "text_7uejxy",
+      "label": "TECNOLOGIA\nSLA - 3H",
+      "x": 257,
+      "y": 207,
+      "w": 175,
+      "h": 60,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false
+    },
+    {
+      "id": "text_kh1b51",
+      "label": "COMERCIAL\n2 DIAS",
+      "x": 254,
+      "y": 323,
+      "w": 171,
+      "h": 60,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false
+    },
+    {
+      "id": "text_a7e1lx",
+      "label": "TECNOLOGIA\nDIA 1 - 3H",
+      "x": 535,
+      "y": 248,
+      "w": 89,
+      "h": 60,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false
+    },
+    {
+      "id": "zone_e04ykp",
+      "label": "2 DIAS",
+      "x": 1319,
+      "y": 240,
+      "w": 463,
+      "h": 167,
+      "shape": "zone",
+      "color": "orange",
+      "hasSubflow": false,
+      "textAlign": "center",
+      "fontSize": 16
+    },
+    {
+      "id": "text_yo22o1",
+      "label": "COMERCIAL ENVIA\nPARA CONTROLADORIA",
+      "x": 1600,
+      "y": 576,
+      "w": 180,
+      "h": 60,
+      "shape": "text",
+      "color": "black",
+      "hasSubflow": false,
+      "fontSize": 14
+    },
+    {
+      "id": "zone_80ydgb",
+      "label": "2 DIAS",
+      "x": 109,
+      "y": 668,
+      "w": 482,
+      "h": 447,
+      "shape": "zone",
+      "color": "orange",
+      "hasSubflow": false,
+      "fontSize": 16,
+      "textAlign": "center"
+    },
+    {
+      "id": "zone_zfree3",
+      "label": "2 DIAS",
+      "x": 975,
+      "y": 741,
+      "w": 380,
+      "h": 210,
+      "shape": "zone",
+      "color": "orange",
+      "hasSubflow": false,
+      "fontSize": 16,
+      "textAlign": "center"
+    }
+  ],
+  "edges": [
+    {
+      "from": "src_indicacao",
+      "to": "alimentacao",
+      "fromSide": "r",
+      "toSide": "l",
+      "mid": 253
+    },
+    {
+      "from": "src_cross",
+      "to": "alimentacao",
+      "fromSide": "r",
+      "toSide": "l",
+      "mid": 253
+    },
+    {
+      "from": "src_publicas",
+      "to": "robo",
+      "fromSide": "r",
+      "toSide": "l",
+      "mid": 249
+    },
+    {
+      "from": "src_setoriais",
+      "to": "robo",
+      "fromSide": "r",
+      "toSide": "l",
+      "mid": 250
+    },
+    {
+      "from": "alimentacao",
+      "to": "d_qualifica",
+      "fromSide": "r",
+      "toSide": "l",
+      "labelFontSize": 13
+    },
+    {
+      "from": "d_qualifica",
+      "to": "sdr_pipe",
+      "fromSide": "r",
+      "toSide": "l",
+      "label": "NÃO",
+      "labelFontSize": 15
+    },
+    {
+      "from": "d_qualifica",
+      "to": "growth",
+      "fromSide": "b",
+      "toSide": "t",
+      "label": "SIM",
+      "labelFontSize": 15
+    },
+    {
+      "from": "growth",
+      "to": "sdr_pipe",
+      "fromSide": "r",
+      "toSide": "b"
+    },
+    {
+      "from": "sdr_pipe",
+      "to": "d_reuniao",
+      "fromSide": "r",
+      "toSide": "l"
+    },
+    {
+      "from": "d_reuniao",
+      "to": "bgc",
+      "fromSide": "b",
+      "toSide": "t",
+      "label": "SIM",
+      "labelFontSize": 15
+    },
+    {
+      "from": "bgc",
+      "to": "orcamento",
+      "fromSide": "r",
+      "toSide": "l"
+    },
+    {
+      "from": "orcamento",
+      "to": "reuniao_apre",
+      "fromSide": "b",
+      "toSide": "t"
+    },
+    {
+      "from": "reuniao_apre",
+      "to": "ata",
+      "fromSide": "b",
+      "toSide": "t"
+    },
+    {
+      "from": "ata",
+      "to": "controladoria",
+      "fromSide": "r",
+      "toSide": "l"
+    },
+    {
+      "from": "controladoria",
+      "to": "proposta_tec",
+      "fromSide": "b",
+      "toSide": "t"
+    },
+    {
+      "from": "proposta_tec",
+      "to": "reuniao_final",
+      "fromSide": "l",
+      "toSide": "r",
+      "mid": 1812
+    },
+    {
+      "from": "envio_final",
+      "to": "assinatura",
+      "fromSide": "l",
+      "toSide": "r"
+    },
+    {
+      "from": "d_assinado",
+      "to": "follow_up",
+      "fromSide": "t",
+      "toSide": "b",
+      "label": "NÃO",
+      "labelFontSize": 15
+    },
+    {
+      "from": "d_assinado",
+      "to": "ctrl_email",
+      "fromSide": "l",
+      "toSide": "r",
+      "label": "SIM",
+      "labelFontSize": 15
+    },
+    {
+      "from": "ctrl_email",
+      "to": "ctrl_cadastro",
+      "fromSide": "l",
+      "toSide": "r"
+    },
+    {
+      "from": "ctrl_cadastro",
+      "to": "financeiro",
+      "fromSide": "t",
+      "toSide": "b"
+    },
+    {
+      "from": "financeiro",
+      "to": "nf",
+      "fromSide": "r",
+      "toSide": "l"
+    },
+    {
+      "from": "ctrl_mkt",
+      "to": "email_comm",
+      "fromSide": "l",
+      "toSide": "r"
+    },
+    {
+      "from": "assinatura",
+      "to": "d_assinado",
+      "fromSide": "r",
+      "toSide": "l"
+    },
+    {
+      "from": "follow_up",
+      "to": "d_assinado",
+      "fromSide": "r",
+      "toSide": "r",
+      "mid": 940
+    },
+    {
+      "from": "src_mkt",
+      "to": "alimentacao",
+      "fromSide": "r",
+      "toSide": "b"
+    },
+    {
+      "from": "robo",
+      "to": "alimentacao",
+      "fromSide": "t",
+      "toSide": "b"
+    },
+    {
+      "from": "reuniao_final",
+      "to": "d_aceitou",
+      "fromSide": "l",
+      "toSide": "r"
+    },
+    {
+      "from": "d_aceitou",
+      "to": "envio_final",
+      "fromSide": "l",
+      "toSide": "r",
+      "label": "SIM",
+      "labelFontSize": 14
+    },
+    {
+      "from": "d_aceitou",
+      "to": "proposta_tec",
+      "fromSide": "b",
+      "toSide": "b",
+      "mid": 1031,
+      "label": "NÃO",
+      "labelFontSize": 15
+    },
+    {
+      "from": "ctrl_email",
+      "to": "ctrl_mkt",
+      "fromSide": "b",
+      "toSide": "t"
+    },
+    {
+      "from": "d_reuniao",
+      "to": "sdr_reagend",
+      "fromSide": "r",
+      "toSide": "l"
+    }
+  ],
+  "title": "Jornada Comercial — Lead até Pós-Contrato",
+  "flowTitle": "Jornada do Cliente",
+  "flowLogo": "/api/images/1778454246977_b8774bec.png",
+  "flowTitleFont": "serif",
+  "flowTitleSize": 32,
+  "legend": [
+    {
+      "id": "leg1",
+      "label": "CAPTAÇÃO DO LEAD E ABORDAGEM ",
+      "color": "#dbeaff",
+      "stroke": "#1f5dbb",
+      "shape": "rect",
+      "period": "1 dia lead quente / lead frio constante ",
+      "periodFontSize": 13
+    },
+    {
+      "id": "leg2",
+      "label": "JORNADA PÓS REUNIÃO",
+      "color": "#c7e7c4",
+      "stroke": "#3d8c4d",
+      "shape": "rect",
+      "period": "4 dias",
+      "periodFontSize": 13
+    },
+    {
+      "id": "leg3",
+      "label": "PÓS CONTRATO",
+      "color": "#fde0c7",
+      "stroke": "#c97639",
+      "shape": "rect",
+      "period": "3 dias",
+      "periodFontSize": 13
+    }
+  ],
+  "legendConfig": {
+    "style": "chip",
+    "fontSize": 13,
+    "fontFamily": "",
+    "align": "center",
+    "gap": 20,
+    "opacity": 10,
+    "coverOpacity": 10
+  },
+  "subflows": {
+    "growth": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Inserção da lista na GrowhMachine",
+          "desc": "Inserção dos leads&nbsp; ao sistema GrothMachine",
+          "color": "blue",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": true,
+          "subSteps": [
+            {
+              "id": "ss1",
+              "title": "Template GrowthMachine",
+              "desc": "Lista template baixada do sistema da Growth",
+              "color": "blue",
+              "owner": "",
+              "duration": ""
+            },
+            {
+              "id": "ss33573",
+              "title": "Preechimento de dados",
+              "desc": "Substituído dados do template com dados da lista vinda do robô",
+              "color": "blue",
+              "owner": "",
+              "duration": ""
+            },
+            {
+              "id": "ss66671",
+              "title": "Associar Cadencia",
+              "desc": "Associar os leads a cadencia de prospecção para inicio",
+              "color": "blue",
+              "owner": "",
+              "duration": ""
+            }
+          ]
+        }
+      ]
+    },
+    "alimentacao": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Inserção de lista ao PIPEDRIVE",
+          "desc": "<div><div>Inserção da lista do passo anterior ao pipedrive</div></div><div><br></div><div><br></div><div><br></div>",
+          "color": "blue",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": [
+            {
+              "id": "ss1",
+              "title": "Teste de terceiro nivel",
+              "desc": "nivel tal tal tal",
+              "color": "blue",
+              "owner": "",
+              "duration": "",
+              "images": [
+                {
+                  "id": "img17784678303050.062251740120794374",
+                  "url": "/api/images/1778467830299_565d8c23.png",
+                  "caption": ""
+                },
+                {
+                  "id": "img17784678331840.98166185080199",
+                  "url": "/api/images/1778467833180_feed16ea.jpg",
+                  "caption": ""
+                }
+              ],
+              "links": [
+                {
+                  "id": "lk835677",
+                  "label": "teste",
+                  "url": "https://google.com"
+                }
+              ]
+            }
+          ],
+          "links": [
+            {
+              "id": "lk931536",
+              "label": "Procedimento",
+              "url": "https://filelaw.sharepoint.com/sites/trabalhista/Documentos%20Compartilhados/Forms/AllItems.aspx?viewid=15eed3df%2D9f72%2D4227%2Da6dd%2D593b29f18104&id=%2Fsites%2Ftrabalhista%2FDocumentos%20Compartilhados%2FATALANTA%2FProc%5F0003122%2FProc0003122%5FManifesta%C3%A7%C3%A3o%2Epdf&parent=%2Fsites%2Ftrabalhista%2FDocumentos%20Compartilhados%2FATALANTA%2FProc%5F0003122"
+            }
+          ],
+          "images": []
+        }
+      ]
+    },
+    "bgc": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Etapa 1",
+          "desc": "https://www.google.com/",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s95489",
+          "title": "Nova etapa",
+          "desc": "",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s95937",
+          "title": "Nova etapa",
+          "desc": "",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s97109",
+          "title": "Nova etapa",
+          "desc": "",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s97435",
+          "title": "Nova etapa",
+          "desc": "",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s97836",
+          "title": "Nova etapa",
+          "desc": "",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        }
+      ]
+    },
+    "assinatura": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Etapa 1",
+          "desc": "Descreva o que acontece aqui.\n\nhttps://www.google.com/",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s2",
+          "title": "Etapa 2",
+          "desc": "Próxima ação do processo.",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        },
+        {
+          "id": "s3",
+          "title": "Etapa 3",
+          "desc": "Resultado / handoff.",
+          "color": "green",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        }
+      ]
+    },
+    "robo": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Inserção de Lista ao Robo",
+          "desc": "Lista submetida ao robô de enriquecimento de dados",
+          "color": "blue",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": true,
+          "subSteps": [
+            {
+              "id": "ss1",
+              "title": "Escolha da API",
+              "desc": "<ul><li>ReceitaWS</li><li>Alertaki</li><li>Lemmit</li><li>PH3A</li></ul>",
+              "color": "blue",
+              "owner": "",
+              "duration": ""
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "title": "Lista higienizada criada",
+          "desc": "Lista XLSX criada",
+          "color": "blue",
+          "owner": "",
+          "duration": "",
+          "hasSubflow": false,
+          "subSteps": []
+        }
+      ]
+    }
+  }
+}
