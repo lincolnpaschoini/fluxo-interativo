@@ -4,12 +4,19 @@ const path   = require('path');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const axios  = require('axios');
+const cloudinary = require('cloudinary').v2;
 
 const PORT = process.env.PORT || 8080;
 
 const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID || '';
 const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID || '';
 const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || '';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'root',
+  api_key: process.env.CLOUDINARY_API_KEY || '856997781274259',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'tQzsKOQo3Yb6howiNONMB1u8BCo',
+});
 
 const BACKUP_DIR    = path.join(__dirname, 'backup');
 const PUBLISHED_DIR = path.join(__dirname, 'published');
@@ -421,9 +428,14 @@ const server = http.createServer(async (req, res) => {
       const m = (data || '').match(/^data:([^;]+);base64,(.+)$/s);
       if (!m) { sendJson(res, 400, { ok: false, error: 'Dados inválidos' }); return; }
       const ext = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-      fs.writeFileSync(path.join(IMAGES_DIR, safe), Buffer.from(m[2], 'base64'));
-      sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
+      const buffer = Buffer.from(m[2], 'base64');
+      const uploadResult = await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_stream({ folder: 'fluxograma' }, (err, result) => {
+          if (err) reject(err);
+          else resolve(result);
+        }).end(buffer);
+      });
+      sendJson(res, 200, { ok: true, url: uploadResult.secure_url });
     } catch(e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
