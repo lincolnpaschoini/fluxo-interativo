@@ -53,16 +53,19 @@ const DEFAULT_USERS_FILE = path.join(__dirname, 'data', 'users.json');
 function loadUsers() {
   try { 
     if (fs.existsSync(USERS_FILE)) {
-      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      if (users.admins && users.admins.length > 0) return users;
     }
     if (fs.existsSync(DEFAULT_USERS_FILE)) {
       const defaultUsers = JSON.parse(fs.readFileSync(DEFAULT_USERS_FILE, 'utf8'));
-      fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), 'utf8');
-      return defaultUsers;
+      if (defaultUsers.admins && defaultUsers.admins.length > 0) {
+        try { fs.writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2), 'utf8'); } catch(e) {}
+        return defaultUsers;
+      }
     }
-    return { admins: [], users: [] };
+    return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln' }] };
   }
-  catch(e) { return { admins: [], users: [] }; }
+  catch(e) { return { admins: ['lincoln.maxwel@paschoini.adv.br'], users: [{ email: 'lincoln.maxwel@paschoini.adv.br', name: 'Lincoln' }] }; }
 }
 function saveUsers(data) {
   try {
@@ -113,7 +116,9 @@ function parseCookies(req) {
 
 function getSession(req) {
   const token = parseCookies(req).fc_session;
-  return token ? (sessions.get(token) || null) : null;
+  const session = token ? (sessions.get(token) || null) : null;
+  console.log('>>> getSession: token=', token ? 'sim' : 'nao', '| session=', session ? 'sim' : 'nao');
+  return session;
 }
 
 function sendJson(res, status, data) {
