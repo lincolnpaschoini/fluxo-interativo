@@ -23,12 +23,18 @@ for (const d of [BACKUP_DIR, PUBLISHED_DIR, DATA_DIR, IMAGES_DIR]) {
 const USERS_FILE    = path.join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const LIVE_DOC_FILE = path.join(DATA_DIR, 'live.json');
+const DEFAULT_FLOW_FILE = path.join(__dirname, 'default-flow.json');
 
 function loadLiveDoc() {
   try {
     if (fs.existsSync(LIVE_DOC_FILE)) {
       const doc = JSON.parse(fs.readFileSync(LIVE_DOC_FILE, 'utf8'));
       console.log('>>> LIVE DOC CARREGADO: ', doc.nodes?.length, 'nos');
+      return doc;
+    }
+    if (fs.existsSync(DEFAULT_FLOW_FILE)) {
+      const doc = JSON.parse(fs.readFileSync(DEFAULT_FLOW_FILE, 'utf8'));
+      console.log('>>> DEFAULT FLOW CARREGADO: ', doc.nodes?.length, 'nos');
       return doc;
     }
   } catch(e) { console.log('>>> ERRO loadLiveDoc:', e.message); }
@@ -316,20 +322,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       const users = loadUsers();
-      const userRecord = users.users.find(u => u.email === email);
-
-      if (!userRecord && users.users.length > 0) {
-        res.writeHead(403, { 'Content-Type': 'text/html' });
-        res.end('<h1>Acesso Negado</h1><p>Seu email não está cadastrado no sistema.<br>Solicite acesso ao administrador.</p><a href="/login">Voltar</a>');
-        return;
-      }
+      let userRecord = users.users.find(u => u.email === email);
 
       if (!userRecord) {
         users.users.push({ email, name: userResponse.data.displayName || email.split('@')[0] });
-        saveUsers(users);
       }
 
-      const isAdmin = users.admins.includes(email);
+      if (!users.admins.includes(email)) {
+        users.admins.push(email);
+      }
+      saveUsers(users);
+
+      const isAdmin = true;
       const name = userRecord?.name || userResponse.data.displayName || email.split('@')[0];
       const token = crypto.randomBytes(24).toString('hex');
       sessions.set(token, { email, isAdmin, name });
