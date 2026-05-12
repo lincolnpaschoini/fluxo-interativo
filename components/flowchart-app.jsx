@@ -1162,17 +1162,23 @@ function App() {
     const docPayload = { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows };
     try {
       // 1. Salva no backup (sobrescreve o existente ou cria novo)
-      const listData = await fetch('/api/backup/list').then(r => r.json());
+      const listRes = await fetch('/api/backup/list');
+      if (listRes.status === 401) { window.location.href = '/login'; return; }
+      const listData = await listRes.json();
       const backups = listData.files || [];
       const backupBody = { data: docPayload };
       if (backups.length > 0) { backupBody.overwriteFile = backups[0].filename; } else { backupBody.name = 'fluxo'; }
-      await fetch('/api/backup/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(backupBody) });
+      const bkRes = await fetch('/api/backup/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(backupBody) });
+      if (!bkRes.ok) throw new Error('Falha ao salvar backup');
 
       // 2. Sincroniza o live_doc → notifica todos via SSE em tempo real
-      await fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(docPayload) });
+      const syncRes = await fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(docPayload) });
+      if (syncRes.status === 401) { window.location.href = '/login'; return; }
+      if (!syncRes.ok) throw new Error('Falha ao sincronizar');
 
       setQuickSaveStatus('saved');
     } catch (e) {
+      console.error('quickSave erro:', e.message);
       setQuickSaveStatus('error');
     }
     setTimeout(() => setQuickSaveStatus('idle'), 2500);
@@ -1263,13 +1269,17 @@ function App() {
           if (!d.ok || !d.data) return;
           if (Array.isArray(d.data.nodes)) setNodes(d.data.nodes);
           if (Array.isArray(d.data.edges)) setEdges(d.data.edges);
-          if (d.data.title)     setDocTitle(d.data.title);
+          if (d.data.title)            setDocTitle(d.data.title);
           if (d.data.flowTitle     != null) setFlowTitle(d.data.flowTitle);
           if (d.data.flowLogo      != null) setFlowLogo(d.data.flowLogo);
           if (d.data.flowTitleFont != null) setFlowTitleFont(d.data.flowTitleFont);
           if (d.data.flowTitleSize != null) setFlowTitleSize(d.data.flowTitleSize);
-          if (d.data.legend       != null) setLegend(d.data.legend);
-          if (d.data.legendConfig != null) setLegendConfig(d.data.legendConfig);
+          if (d.data.legend        != null) setLegend(d.data.legend);
+          if (d.data.legendConfig  != null) setLegendConfig(d.data.legendConfig);
+          // Subflows ficam no localStorage — sincronizar junto com o resto
+          if (d.data.subflows) {
+            try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (_) {}
+          }
         })
         .catch(() => {});
     };

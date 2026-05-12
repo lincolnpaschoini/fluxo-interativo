@@ -64,6 +64,23 @@ async function init() {
 }
 
 async function _migrateFromFiles(client) {
+  // Sessões: sempre tenta importar sessions.json (ON CONFLICT DO NOTHING é idempotente)
+  const sessionsFile = path.join(__dirname, 'data', 'sessions.json');
+  if (fs.existsSync(sessionsFile)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'));
+      let count = 0;
+      for (const [token, info] of Object.entries(raw)) {
+        const r = await client.query(
+          'INSERT INTO sessions (token, email, name, is_admin) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+          [token, info.email, info.name || '', info.isAdmin || false]
+        );
+        count += r.rowCount;
+      }
+      if (count > 0) console.log(`>>> DB: ${count} sessão(ões) importada(s) de sessions.json`);
+    } catch (e) { console.log('>>> DB: erro ao importar sessions.json:', e.message); }
+  }
+
   // Usuários
   const { rowCount: uc } = await client.query('SELECT 1 FROM users LIMIT 1');
   if (!uc) {
