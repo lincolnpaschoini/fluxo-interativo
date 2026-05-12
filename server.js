@@ -342,11 +342,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/api/doc/sync' && req.method === 'POST') {
     const session = await getSession(req);
-    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false, error: 'Acesso restrito' }); return; }
+    if (!session) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
     try {
       const body = await readBody(req);
       await db.saveLiveDoc(body);
-      notifyMainClients('doc_updated', {});
+      notifyMainClients('doc_updated', { by: session.email });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;

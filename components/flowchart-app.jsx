@@ -1153,27 +1153,25 @@ function App() {
   const [userList, setUserList] = React.useState({ admins: [], users: [] });
   const [updateToast, setUpdateToast] = React.useState(false);
 
-  // Salva diretamente sobre o backup existente (sem diálogo)
+  // Salva diretamente sobre o backup existente e sincroniza o live_doc para todos
   const quickSave = async () => {
     if (quickSaveStatus === 'saving') return;
     setQuickSaveStatus('saving');
     let subflows = {};
     try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    const docPayload = { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows };
     try {
+      // 1. Salva no backup (sobrescreve o existente ou cria novo)
       const listData = await fetch('/api/backup/list').then(r => r.json());
       const backups = listData.files || [];
-      const body = { data: { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows } };
-      if (backups.length > 0) {
-        body.overwriteFile = backups[0].filename;
-      } else {
-        body.name = 'fluxo';
-      }
-      const saveData = await fetch('/api/backup/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then(r => r.json());
-      setQuickSaveStatus(saveData.ok ? 'saved' : 'error');
+      const backupBody = { data: docPayload };
+      if (backups.length > 0) { backupBody.overwriteFile = backups[0].filename; } else { backupBody.name = 'fluxo'; }
+      await fetch('/api/backup/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(backupBody) });
+
+      // 2. Sincroniza o live_doc → notifica todos via SSE em tempo real
+      await fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(docPayload) });
+
+      setQuickSaveStatus('saved');
     } catch (e) {
       setQuickSaveStatus('error');
     }
@@ -1281,9 +1279,12 @@ function App() {
 
     const es = new EventSource('/api/events/__main__');
 
-    // Admin fez qualquer alteração → atualiza doc completo nos clientes
-    es.addEventListener('doc_updated', () => {
-      if (IS_ADMIN && !SIMULATE_AS) return; // admin já tem os dados mais recentes
+    // Alguém salvou → atualiza doc completo; ignora apenas a própria atualização
+    es.addEventListener('doc_updated', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (!SIMULATE_AS && data.by === CURRENT_USER?.email) return;
+      } catch (_) {}
       applyLiveDoc();
     });
 
