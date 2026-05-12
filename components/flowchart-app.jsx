@@ -1153,6 +1153,14 @@ function App() {
   const [userList, setUserList] = React.useState({ admins: [], users: [] });
   const [updateToast, setUpdateToast] = React.useState(false);
 
+  // Aplica subflows do serverDoc ao localStorage imediatamente no primeiro carregamento
+  // para que as imagens apareçam sem esperar o applyLiveDoc assíncrono
+  React.useEffect(() => {
+    if (!PUBLISHED_SLUG && (!IS_ADMIN || SIMULATE_AS) && initial?.subflows) {
+      try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(initial.subflows)); } catch (_) {}
+    }
+  }, []);
+
   // Salva diretamente sobre o backup existente e sincroniza o live_doc para todos
   const quickSave = async () => {
     if (quickSaveStatus === 'saving') return;
