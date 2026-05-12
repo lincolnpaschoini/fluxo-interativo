@@ -377,10 +377,11 @@ const server = http.createServer(async (req, res) => {
         const result = await cloudinary.uploader.upload(`data:${m[1]};base64,${m[2]}`, { folder: 'fluxograma' });
         sendJson(res, 200, { ok: true, url: result.secure_url });
       } catch (cloudErr) {
-        console.log('>>> CLOUDINARY ERRO:', cloudErr.message, '— usando armazenamento local');
-        const buffer = Buffer.from(m[2], 'base64');
-        const safe   = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-        fs.writeFileSync(path.join(IMAGES_DIR, safe), buffer);
+        console.log('>>> CLOUDINARY ERRO:', cloudErr.message, '— salvando no banco de dados');
+        const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+        await db.saveImage(safe, m[1], m[2]);
+        // Tenta cachear localmente também (sem travar se falhar)
+        try { fs.writeFileSync(path.join(IMAGES_DIR, safe), Buffer.from(m[2], 'base64')); } catch (_) {}
         sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
       }
     } catch (e) {
@@ -392,13 +393,33 @@ const server = http.createServer(async (req, res) => {
 
   const imgServeMatch = req.url.match(/^\/api\/images\/([a-zA-Z0-9_\-.]+)$/);
   if (imgServeMatch && req.method === 'GET') {
-    const filepath = path.join(IMAGES_DIR, imgServeMatch[1]);
-    if (!fs.existsSync(filepath)) { res.writeHead(404); res.end(); return; }
-    const ext  = imgServeMatch[1].split('.').pop().toLowerCase();
-    const mime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-                   gif: 'image/gif',  webp: 'image/webp', svg: 'image/svg+xml' }[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=31536000' });
-    res.end(fs.readFileSync(filepath));
+    const fname    = imgServeMatch[1];
+    const filepath = path.join(IMAGES_DIR, fname);
+    const ext      = fname.split('.').pop().toLowerCase();
+    const MIMES    = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                       gif: 'image/gif',  webp: 'image/webp', svg: 'image/svg+xml' };
+
+    // 1. Tenta arquivo local (cache)
+    if (fs.existsSync(filepath)) {
+      const mime = MIMES[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=31536000' });
+      res.end(fs.readFileSync(filepath));
+      return;
+    }
+
+    // 2. Busca no banco de dados
+    try {
+      const img = await db.loadImage(fname);
+      if (!img) { res.writeHead(404); res.end(); return; }
+      const mime   = img.mimetype || MIMES[ext] || 'application/octet-stream';
+      const buffer = Buffer.from(img.data, 'base64');
+      // Cacheia localmente para próximas requisições
+      try { fs.writeFileSync(filepath, buffer); } catch (_) {}
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=31536000' });
+      res.end(buffer);
+    } catch (e) {
+      res.writeHead(500); res.end();
+    }
     return;
   }
 

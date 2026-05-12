@@ -51,6 +51,12 @@ async function init() {
         data       JSONB NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS images (
+        filename   TEXT PRIMARY KEY,
+        mimetype   TEXT NOT NULL DEFAULT 'image/jpeg',
+        data       TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
 
     // Remover sessões com mais de 1 ano
@@ -164,6 +170,28 @@ async function _migrateFromFiles(client) {
       if (files.length) console.log('>>> DB:', files.length, 'backup(s) migrado(s)');
     }
   }
+
+  // Imagens locais → banco (sempre, idempotente)
+  const imagesDir = path.join(__dirname, 'data', 'images');
+  if (fs.existsSync(imagesDir)) {
+    const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                   gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+    const files = fs.readdirSync(imagesDir).filter(f => /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(f));
+    let count = 0;
+    for (const file of files) {
+      try {
+        const ext = file.split('.').pop().toLowerCase();
+        const mime = MIME[ext] || 'application/octet-stream';
+        const b64 = fs.readFileSync(path.join(imagesDir, file)).toString('base64');
+        const r = await client.query(
+          'INSERT INTO images (filename, mimetype, data) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+          [file, mime, b64]
+        );
+        count += r.rowCount;
+      } catch (e) { /* ignora arquivo corrompido */ }
+    }
+    if (count > 0) console.log('>>> DB:', count, 'imagem(ns) migrada(s) de data/images/');
+  }
 }
 
 // ── Usuários ──────────────────────────────────────────────────────────────────
@@ -272,6 +300,21 @@ async function publishedExists(slug) {
   return rows.length > 0;
 }
 
+// ── Imagens ───────────────────────────────────────────────────────────────────
+
+async function saveImage(filename, mimetype, base64data) {
+  await pool.query(
+    `INSERT INTO images (filename, mimetype, data) VALUES ($1, $2, $3)
+     ON CONFLICT (filename) DO UPDATE SET data=$3, mimetype=$2`,
+    [filename, mimetype, base64data]
+  );
+}
+
+async function loadImage(filename) {
+  const { rows } = await pool.query('SELECT mimetype, data FROM images WHERE filename=$1', [filename]);
+  return rows.length ? rows[0] : null;
+}
+
 // ── Backups ───────────────────────────────────────────────────────────────────
 
 async function listBackups() {
@@ -301,4 +344,5 @@ module.exports = {
   loadLiveDoc, saveLiveDoc,
   loadPublished, savePublished, publishedExists,
   listBackups, saveBackup, loadBackup,
+  saveImage, loadImage,
 };
