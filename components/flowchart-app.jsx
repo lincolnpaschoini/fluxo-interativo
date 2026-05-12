@@ -882,7 +882,7 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
 }
 
 // ─── Toolbar do editor
-function EditorToolbar({ onAdd, onReset, onExit }) {
+function EditorToolbar({ onAdd, onReset, onExit, isAdmin }) {
   return (
     <div className="editor-toolbar">
       <div className="et-group">
@@ -908,7 +908,7 @@ function EditorToolbar({ onAdd, onReset, onExit }) {
         ))}
       </div>
       <div className="et-group">
-        <button className="btn-ghost" onClick={onReset} title="Voltar ao fluxograma original">↺ Resetar</button>
+        {isAdmin && <button className="btn-ghost" onClick={onReset} title="Voltar ao fluxograma original">↺ Resetar</button>}
         <button className="btn-ghost" onClick={onExit}>✓ Concluir edição</button>
       </div>
     </div>
@@ -1578,18 +1578,22 @@ function App() {
               <span style={{ fontSize: 12, color: '#6b6b66' }}>Visualização pública · somente leitura</span>
             ) : !editorMode ? (
               <>
-                <button className="btn-ghost" onClick={enterEditor}>✎ Editar</button>
-                <button
-                  className="btn-ghost"
-                  onClick={quickSave}
-                  disabled={quickSaveStatus === 'saving'}
-                  style={quickSaveStatus === 'saved' ? { color: '#3d8c4d', fontWeight: 600 } : quickSaveStatus === 'error' ? { color: '#a52828' } : {}}
-                >
-                  {quickSaveStatus === 'saving' ? '💾 Salvando…' :
-                   quickSaveStatus === 'saved'  ? '✓ Salvo!' :
-                   quickSaveStatus === 'error'  ? '✗ Erro ao salvar' :
-                   '💾 Salvar'}
-                </button>
+                {IS_ADMIN && <button className="btn-ghost" onClick={enterEditor}>✎ Editar</button>}
+                {IS_ADMIN ? (
+                  <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Backup</button>
+                ) : (
+                  <button
+                    className="btn-ghost"
+                    onClick={quickSave}
+                    disabled={quickSaveStatus === 'saving'}
+                    style={quickSaveStatus === 'saved' ? { color: '#3d8c4d', fontWeight: 600 } : quickSaveStatus === 'error' ? { color: '#a52828' } : {}}
+                  >
+                    {quickSaveStatus === 'saving' ? '💾 Salvando…' :
+                     quickSaveStatus === 'saved'  ? '✓ Salvo!' :
+                     quickSaveStatus === 'error'  ? '✗ Erro ao salvar' :
+                     '💾 Salvar'}
+                  </button>
+                )}
                 {IS_ADMIN && <button className="btn-primary" onClick={() => setShowPublish(true)}>Publicar</button>}
               </>
             ) : (
@@ -1624,7 +1628,7 @@ function App() {
         </header>
 
         {editorMode && (
-          <EditorToolbar onAdd={addNode} onReset={reset} onExit={exitEditor} />
+          <EditorToolbar onAdd={addNode} onReset={reset} onExit={exitEditor} isAdmin={IS_ADMIN} />
         )}
 
         {!editorMode && (
