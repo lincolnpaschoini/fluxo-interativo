@@ -332,7 +332,8 @@ const server = http.createServer(async (req, res) => {
       }
       await db.saveUsers({ admins: body.admins, users: body.users });
       await db.updateSessionAdmins(body.admins);
-      notifyMainClients('users_updated', { admins: body.admins });
+      await db.revokeDeletedUserSessions(body.users.map(u => u.email));
+      notifyMainClients('users_updated', { admins: body.admins, users: body.users });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;

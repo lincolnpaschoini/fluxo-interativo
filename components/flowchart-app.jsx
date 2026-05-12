@@ -1374,10 +1374,17 @@ function App() {
       applyLiveDoc();
     });
 
-    // Admin alterou lista de admins → recarrega se o status do usuário atual mudou
+    // Admin alterou lista de usuários → recarrega ou derruba acesso
     es.addEventListener('users_updated', (e) => {
       try {
         const data = JSON.parse(e.data);
+        const activeEmails = (data.users || []).map(u => u.email);
+        // Usuário foi removido → derruba sessão
+        if (activeEmails.length > 0 && !activeEmails.includes(CURRENT_USER.email)) {
+          window.location.href = '/login';
+          return;
+        }
+        // Status de admin mudou → recarrega para atualizar permissões
         const isNowAdmin = (data.admins || []).includes(CURRENT_USER.email);
         if (isNowAdmin !== IS_ADMIN) window.location.reload();
       } catch(_) {}

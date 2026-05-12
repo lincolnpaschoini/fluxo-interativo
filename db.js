@@ -225,6 +225,13 @@ async function updateSessionAdmins(adminEmails) {
   );
 }
 
+async function revokeDeletedUserSessions(activeEmails) {
+  await pool.query(
+    'DELETE FROM sessions WHERE email != ALL($1::text[])',
+    [activeEmails]
+  );
+}
+
 // ── Live doc ──────────────────────────────────────────────────────────────────
 
 async function loadLiveDoc() {
@@ -290,7 +297,7 @@ async function loadBackup(filename) {
 module.exports = {
   init, pool,
   loadUsers, saveUsers,
-  getSessionByToken, setSession, updateSessionAdmins,
+  getSessionByToken, setSession, updateSessionAdmins, revokeDeletedUserSessions,
   loadLiveDoc, saveLiveDoc,
   loadPublished, savePublished, publishedExists,
   listBackups, saveBackup, loadBackup,
