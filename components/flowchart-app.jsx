@@ -730,6 +730,39 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
       .catch(() => setLoadErr('Erro ao carregar backup.'));
   };
 
+  const downloadToComputer = () => {
+    let subflows = {};
+    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    const data = { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importFromComputer = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data || (!data.nodes && !data.edges)) throw new Error('Formato inválido');
+        onImport(data);
+        onClose();
+      } catch (err) {
+        setLoadErr('Arquivo inválido ou corrompido. Certifique-se de selecionar um backup gerado por este sistema.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   const inputStyle = {
     border: '1px solid rgba(0,0,0,0.1)', borderRadius: 6,
     padding: '8px 10px', font: '13px/1.4 inherit', outline: 0, width: '100%',
@@ -838,6 +871,18 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
                     {status === 'saving' ? 'Salvando…' : 'Salvar backup'}
                   </button>
                 </div>
+
+                <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', marginTop: 20, paddingTop: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b6b66', marginBottom: 8 }}>
+                    Salvar no computador
+                  </div>
+                  <p style={{ fontSize: 12, color: '#6b6b66', marginBottom: 10, lineHeight: 1.5 }}>
+                    Baixa um arquivo JSON do estado atual diretamente para o seu computador, sem salvar no servidor.
+                  </p>
+                  <button className="btn-ghost" style={{ width: '100%' }} onClick={downloadToComputer}>
+                    ⬇ Baixar arquivo no computador
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -845,15 +890,38 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
 
         {tab === 'import' && (
           <div style={{ padding: '20px 32px 28px' }}>
+            {/* Importar do computador */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b6b66', marginBottom: 8 }}>
+                Importar do computador
+              </div>
+              <p style={{ fontSize: 12, color: '#6b6b66', marginBottom: 10, lineHeight: 1.5 }}>
+                Selecione um arquivo JSON de backup salvo anteriormente no seu computador.
+              </p>
+              <label style={{ display: 'block', cursor: 'pointer' }}>
+                <div className="btn-ghost" style={{ width: '100%', textAlign: 'center', boxSizing: 'border-box' }}>
+                  📂 Selecionar arquivo do computador
+                </div>
+                <input type="file" accept=".json,application/json" onChange={importFromComputer}
+                       style={{ display: 'none' }} />
+              </label>
+            </div>
+
+            <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b6b66', marginTop: 16, marginBottom: 8 }}>
+                Backups salvos no servidor
+              </div>
+            </div>
+
+            {loadErr && <p style={{ color: '#a52828', marginBottom: 10 }}>{loadErr}</p>}
             {loading && <p style={{ color: '#6b6b66' }}>Carregando lista de backups…</p>}
-            {loadErr && <p style={{ color: '#a52828' }}>{loadErr}</p>}
             {!loading && !loadErr && backups.length === 0 && (
-              <p style={{ color: '#6b6b66', textAlign: 'center', padding: '20px 0' }}>
-                Nenhum backup encontrado na pasta <code>backup/</code>.
+              <p style={{ color: '#6b6b66', textAlign: 'center', padding: '8px 0' }}>
+                Nenhum backup encontrado no servidor.
               </p>
             )}
             {!loading && backups.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
                 {backups.map((b) => (
                   <div key={b.filename}
                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
