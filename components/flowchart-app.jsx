@@ -551,35 +551,53 @@ function NodeInspector({ node, onChange, onDelete, onConnect, onEditSubflow, onD
 
         {IS_ADMIN && !isDecorative && (
           <div className="ins-row">
-            <span style={{ fontWeight: 600 }}>Permissões de edição</span>
-            <div style={{ marginTop: 6 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13, marginBottom: 6 }}>
-                <input type="checkbox"
-                       checked={node.allowedUsers === null}
-                       onChange={(e) => onChange({ allowedUsers: e.target.checked ? null : [] })} />
-                Todos os usuários podem editar o sub-fluxo
-              </label>
-              {Array.isArray(node.allowedUsers) && (
-                <div style={{ marginLeft: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {(userList?.users || []).filter(u => !userList.admins?.includes(u.email)).map(u => (
-                    <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13 }}>
-                      <input type="checkbox"
-                             checked={node.allowedUsers.includes(u.email)}
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#6b6b66', marginBottom: 8 }}>
+              Permissões de edição
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                            padding: '7px 10px', borderRadius: 7, marginBottom: 4,
+                            background: node.allowedUsers === null ? '#dbeaff' : '#f5f5f3',
+                            border: `1.5px solid ${node.allowedUsers === null ? '#1f5dbb' : 'rgba(0,0,0,0.08)'}` }}>
+              <input type="checkbox"
+                     checked={node.allowedUsers === null}
+                     onChange={(e) => onChange({ allowedUsers: e.target.checked ? null : [] })} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: node.allowedUsers === null ? '#1f5dbb' : '#3a3a3a' }}>
+                Todos os usuários podem editar
+              </span>
+            </label>
+            {Array.isArray(node.allowedUsers) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                {(userList?.users || []).filter(u => !userList.admins?.includes(u.email)).map(u => {
+                  const checked = node.allowedUsers.includes(u.email);
+                  return (
+                    <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                                                  padding: '6px 10px', borderRadius: 7,
+                                                  background: checked ? '#f0fff4' : '#f5f5f3',
+                                                  border: `1.5px solid ${checked ? '#3d8c4d' : 'rgba(0,0,0,0.08)'}` }}>
+                      <input type="checkbox" checked={checked}
                              onChange={(e) => {
                                const next = e.target.checked
                                  ? [...node.allowedUsers, u.email]
                                  : node.allowedUsers.filter(em => em !== u.email);
                                onChange({ allowedUsers: next });
                              }} />
-                      <span>{u.name || u.email} <span style={{ fontSize: 11, color: '#6b6b66' }}>({u.email})</span></span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: checked ? '#2d6e3d' : '#3a3a3a',
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.name || u.email}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#8a8a8a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.email}
+                        </div>
+                      </div>
                     </label>
-                  ))}
-                  {(userList?.users || []).filter(u => !userList.admins?.includes(u.email)).length === 0 && (
-                    <p style={{ fontSize: 12, color: '#6b6b66', margin: 0 }}>Nenhum usuário cadastrado além dos admins.</p>
-                  )}
-                </div>
-              )}
-            </div>
+                  );
+                })}
+                {(userList?.users || []).filter(u => !userList.admins?.includes(u.email)).length === 0 && (
+                  <p style={{ fontSize: 12, color: '#6b6b66', margin: 0, padding: '4px 2px' }}>Nenhum usuário além dos admins.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
