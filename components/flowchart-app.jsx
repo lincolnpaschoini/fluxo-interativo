@@ -1290,7 +1290,7 @@ function App() {
   const [selectedEdgeIdx, setSelectedEdgeIdx] = React.useState(null);
   const [connectingFromId, setConnectingFromId] = React.useState(null);
   const [connectingFromAnchor, setConnectingFromAnchor] = React.useState(null);
-  const [openNode, setOpenNode] = React.useState(null);
+  const [openNodeId, setOpenNodeId] = React.useState(null);
   const [showPublish, setShowPublish] = React.useState(false);
   const [showBackup, setShowBackup] = React.useState(false);
   const [quickSaveStatus, setQuickSaveStatus] = React.useState('idle'); // idle | saving | saved | error
@@ -1487,6 +1487,8 @@ function App() {
     es.addEventListener('access_request_resolved', (e) => {
       try {
         const data = JSON.parse(e.data);
+        // Sempre atualiza os nodes (admin vê allowedUsers atualizado, popup aberto reflete novo acesso)
+        applyLiveDoc();
         // Usuário real ou admin simulando: verifica se é para este "ator"
         const actingEmail = SIMULATE_AS || CURRENT_USER?.email;
         if (actingEmail === data.requesterEmail) {
@@ -1667,7 +1669,7 @@ function App() {
     }
   };
 
-  const enterEditor = () => { setEditorMode(true); setOpenNode(null); };
+  const enterEditor = () => { setEditorMode(true); setOpenNodeId(null); };
   const exitEditor = () => {
     setEditorMode(false);
     setSelectedNodeId(null); setSelectedEdgeIdx(null);
@@ -1679,7 +1681,7 @@ function App() {
     if (node.isLegend) return;
     if (node.shape === 'text' || node.shape === 'zone') return;
     if (node.hasSubflow === false) return;
-    setOpenNode(node);
+    setOpenNodeId(node.id);
   };
   const handleSelectNode = (id) => { setSelectedNodeId(id); setSelectedEdgeIdx(null); };
   const handleSelectEdge = (idx) => { setSelectedEdgeIdx(idx); setSelectedNodeId(null); };
@@ -1751,9 +1753,10 @@ function App() {
   const filledCount = React.useMemo(() => {
     try { return Object.keys(JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}')).length; }
     catch (e) { return 0; }
-  }, [openNode, showPublish]);
+  }, [openNodeId, showPublish]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  const openNode     = openNodeId ? (nodes.find((n) => n.id === openNodeId) || null) : null;
   const selectedEdge = selectedEdgeIdx != null ? edges[selectedEdgeIdx] : null;
 
   return (
@@ -2009,7 +2012,7 @@ function App() {
             onChange={(p) => updateNode(selectedNode.id, p)}
             onDelete={deleteNode}
             onConnect={startConnect}
-            onEditSubflow={() => setOpenNode(selectedNode)}
+            onEditSubflow={() => setOpenNodeId(selectedNode?.id)}
             onDuplicate={() => duplicateNode(selectedNodeId)}
             onClose={() => setSelectedNodeId(null)}
             userList={userList}
@@ -2028,7 +2031,7 @@ function App() {
       {openNode && (
         <NodeModal node={openNode} popupStyle={t.popupStyle}
                    editorMode={editorMode || canEditNode(openNode)}
-                   onClose={() => setOpenNode(null)}
+                   onClose={() => setOpenNodeId(null)}
                    onRequestAccess={!IS_ADMIN && !PUBLISHED_SLUG && !canEditNode(openNode) ? requestAccess : undefined}
                    requestStatus={myRequests[openNode?.id]} />
       )}
@@ -2092,7 +2095,7 @@ function App() {
                        ]}
                        onChange={(v) => setTweak('popupStyle', v)} />
           <TweakButton label="Abrir um exemplo"
-                       onClick={() => { setEditorMode(false); setOpenNode(nodes.find(n => n.id === 'sdr_pipe') || nodes[0]); }} />
+                       onClick={() => { setEditorMode(false); setOpenNodeId((nodes.find(n => n.id === 'sdr_pipe') || nodes[0])?.id); }} />
         </TweakSection>
         <TweakSection label="Canvas">
           <TweakToggle label="Labels nas setas"
