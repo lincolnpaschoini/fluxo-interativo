@@ -4,7 +4,6 @@ const path     = require('path');
 const crypto   = require('crypto');
 const { exec } = require('child_process');
 const axios    = require('axios');
-const cloudinary = require('cloudinary').v2;
 const db       = require('./db');
 
 const PORT = process.env.PORT || 8080;
@@ -13,13 +12,7 @@ const AZURE_CLIENT_ID     = process.env.AZURE_CLIENT_ID     || '';
 const AZURE_TENANT_ID     = process.env.AZURE_TENANT_ID     || '';
 const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET || '';
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'paschoini',
-  api_key:    process.env.CLOUDINARY_API_KEY    || '696232997823252',
-  api_secret: process.env.CLOUDINARY_API_SECRET || 'Gj578DU5_SMLCBP_tktn6-yqc2E',
-});
-
-// Diretório local usado apenas como fallback de imagens quando Cloudinary falha
+// Cache local de imagens (apenas para acelerar serve; fonte de verdade é o banco)
 const IMAGES_DIR = path.join(__dirname, 'data', 'images');
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
@@ -462,18 +455,13 @@ const server = http.createServer(async (req, res) => {
       const { filename = 'image', data } = await readBody(req);
       const m = (data || '').match(/^data:([^;]+);base64,(.+)$/s);
       if (!m) { sendJson(res, 400, { ok: false, error: 'Dados inválidos' }); return; }
-      const ext = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      try {
-        const result = await cloudinary.uploader.upload(`data:${m[1]};base64,${m[2]}`, { folder: 'fluxograma' });
-        sendJson(res, 200, { ok: true, url: result.secure_url });
-      } catch (cloudErr) {
-        console.log('>>> CLOUDINARY ERRO:', cloudErr.message, '— salvando no banco de dados');
-        const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-        await db.saveImage(safe, m[1], m[2]);
-        // Tenta cachear localmente também (sem travar se falhar)
-        try { fs.writeFileSync(path.join(IMAGES_DIR, safe), Buffer.from(m[2], 'base64')); } catch (_) {}
-        sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
-      }
+      const ext  = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+      // Salva sempre no banco de dados (fonte de verdade permanente)
+      await db.saveImage(safe, m[1], m[2]);
+      // Cache local para acelerar o serve (opcional, não crítico)
+      try { fs.writeFileSync(path.join(IMAGES_DIR, safe), Buffer.from(m[2], 'base64')); } catch (_) {}
+      sendJson(res, 200, { ok: true, url: `/api/images/${safe}` });
     } catch (e) {
       console.log('>>> ERRO UPLOAD:', e.message);
       sendJson(res, 500, { ok: false, error: e.message });
