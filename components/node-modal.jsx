@@ -639,7 +639,7 @@ function SubflowViewer({ subflow }) {
 }
 
 // ─── Wrapper que troca entre modal / drawer / drill ───────────────────────────
-function NodeModal({ node, onClose, popupStyle, editorMode = true }) {
+function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAccess, requestStatus }) {
   const [allSubflows, setAllSubflows] = React.useState(loadSubflows);
   const subflow = allSubflows[node?.id] || makeEmptySubflow(node?.color);
 
@@ -659,6 +659,32 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true }) {
   const color = window.NODE_COLORS[node.color] || window.NODE_COLORS.blue;
   const title = node.label.replace(/\n/g, ' ');
 
+  const requestBtn = !editorMode && onRequestAccess && (
+    requestStatus === 'pending' ? (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12,
+                    fontSize: 12, color: '#c97639', fontWeight: 600 }}>
+        <span>⏳</span> Solicitação enviada — aguardando aprovação do admin
+      </div>
+    ) : requestStatus === 'denied' ? (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12,
+                    fontSize: 12, color: '#a52828', fontWeight: 600 }}>
+        <span>✗</span> Solicitação reprovada
+        <button onClick={() => onRequestAccess(node.id, title)}
+                style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                         border: '1px solid #a52828', borderRadius: 4, background: 'transparent', color: '#a52828' }}>
+          Solicitar novamente
+        </button>
+      </div>
+    ) : (
+      <button onClick={() => onRequestAccess(node.id, title)}
+              style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6,
+                       padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                       border: '1.5px solid #1f5dbb', borderRadius: 6, background: '#f0f5ff', color: '#1f5dbb' }}>
+        🔓 Solicitar Liberação para Editar
+      </button>
+    )
+  );
+
   const header = (
     <div className="sf-header" style={{ borderColor: color.stroke }}>
       <div className="sf-eyebrow" style={{ color: color.stroke }}>
@@ -668,6 +694,7 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true }) {
       <p className="sf-sub">{editorMode
         ? 'Edite as etapas abaixo. As alterações ficam salvas no seu navegador.'
         : 'Sub-fluxograma desta etapa. Clique nas etapas marcadas para ver o 3° nível.'}</p>
+      {requestBtn}
       <button className="sf-close" onClick={onClose} aria-label="Fechar">×</button>
     </div>
   );

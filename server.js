@@ -339,6 +339,96 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Solicitações de acesso ────────────────────────────────────────────────
+
+  // Usuário cria solicitação
+  if (req.url === '/api/access-request' && req.method === 'POST') {
+    const actualSession = await getSession(req);
+    if (!actualSession) { sendJson(res, 401, { ok: false }); return; }
+    try {
+      const { nodeId, nodeTitle, simulateAs } = await readBody(req);
+      // Admin simulando outro usuário: aceita se simulateAs for fornecido
+      let actingEmail = actualSession.email;
+      let actingName  = actualSession.name;
+      if (simulateAs && actualSession.isAdmin) {
+        actingEmail = simulateAs;
+        const users = await db.loadUsers();
+        const u = users.users.find(u => u.email === simulateAs);
+        actingName = u ? u.name : simulateAs;
+      } else if (actualSession.isAdmin) {
+        sendJson(res, 400, { ok: false, error: 'Admin não precisa solicitar acesso' }); return;
+      }
+      if (!nodeId) { sendJson(res, 400, { ok: false, error: 'nodeId obrigatório' }); return; }
+      const result = await db.createAccessRequest(nodeId, nodeTitle || '', actingEmail, actingName);
+      if (!result.alreadyExists) {
+        notifyMainClients('access_request_new', {
+          id: result.id, nodeId, nodeTitle, requesterEmail: actingEmail, requesterName: actingName,
+        });
+      }
+      sendJson(res, 200, { ok: true, id: result.id, alreadyExists: result.alreadyExists });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // Admin lista solicitações pendentes
+  if (req.url === '/api/access-requests' && req.method === 'GET') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const pending = await db.listAccessRequests('pending');
+      sendJson(res, 200, { ok: true, requests: pending });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // Admin aprova ou reprova
+  if (req.url === '/api/access-request/resolve' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const { id, status } = await readBody(req);
+      if (!['approved', 'denied'].includes(status)) { sendJson(res, 400, { ok: false, error: 'Status inválido' }); return; }
+      const req_ = await db.resolveAccessRequest(id, status, session.email);
+      if (!req_) { sendJson(res, 404, { ok: false }); return; }
+
+      // Se aprovado, atualiza allowedUsers do nó no live_doc
+      if (status === 'approved') {
+        const doc = await db.loadLiveDoc();
+        if (doc && Array.isArray(doc.nodes)) {
+          const node = doc.nodes.find(n => n.id === req_.node_id);
+          if (node) {
+            if (!Array.isArray(node.allowedUsers)) node.allowedUsers = [];
+            if (!node.allowedUsers.includes(req_.requester_email)) {
+              node.allowedUsers.push(req_.requester_email);
+            }
+            await db.saveLiveDoc(doc);
+            notifyMainClients('doc_updated', { by: session.email });
+          }
+        }
+      }
+
+      notifyMainClients('access_request_resolved', {
+        nodeId: req_.node_id, status, requesterEmail: req_.requester_email,
+      });
+      sendJson(res, 200, { ok: true });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // Usuário consulta suas próprias solicitações
+  if (req.url.startsWith('/api/access-request/mine') && req.method === 'GET') {
+    const actualSession = await getSession(req);
+    if (!actualSession) { sendJson(res, 401, { ok: false }); return; }
+    try {
+      const parsedMine = new URL(req.url, 'http://localhost');
+      const simulateAs = parsedMine.searchParams.get('simulate_as');
+      const email = (simulateAs && actualSession.isAdmin) ? simulateAs : actualSession.email;
+      const map = await db.getMyAccessRequests(email);
+      sendJson(res, 200, { ok: true, requests: map });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
   // ── Sync de doc live ──────────────────────────────────────────────────────
 
   if (req.url === '/api/doc/sync' && req.method === 'POST') {

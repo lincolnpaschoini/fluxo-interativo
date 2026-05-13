@@ -679,6 +679,88 @@ function EdgeInspector({ edge, idx, onChange, onDelete, onClose }) {
   );
 }
 
+// ─── Painel de Solicitações de Acesso (admin)
+function RequestsPanel({ onClose, onResolve }) {
+  const [requests, setRequests] = React.useState([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [resolving, setResolving] = React.useState(null);
+
+  const load = () => {
+    setLoading(true);
+    fetch('/api/access-requests')
+      .then(r => r.json())
+      .then(d => { setRequests(d.requests || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  React.useEffect(() => { load(); }, []);
+
+  const resolve = async (id, status) => {
+    setResolving(id);
+    await fetch('/api/access-request/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status }),
+    });
+    setRequests(prev => prev.filter(r => r.id !== id));
+    setResolving(null);
+    onResolve();
+  };
+
+  return (
+    <div className="sf-modal-overlay" onClick={onClose}>
+      <div className="sf-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <button className="sf-close" onClick={onClose} aria-label="Fechar">×</button>
+        <div className="sf-header">
+          <div className="sf-eyebrow" style={{ color: '#c97639' }}>ADMINISTRAÇÃO</div>
+          <h2 className="sf-title" style={{ fontSize: 20, marginBottom: 4 }}>Solicitações de Acesso</h2>
+          <p className="sf-sub">Aprove ou reprove pedidos de edição de caixas do fluxo.</p>
+        </div>
+        <div style={{ padding: '16px 32px 28px' }}>
+          {loading && <p style={{ color: '#6b6b66' }}>Carregando…</p>}
+          {!loading && requests.length === 0 && (
+            <p style={{ color: '#6b6b66', textAlign: 'center', padding: '24px 0' }}>
+              ✓ Nenhuma solicitação pendente.
+            </p>
+          )}
+          {!loading && requests.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 380, overflowY: 'auto' }}>
+              {requests.map(r => (
+                <div key={r.id} style={{ border: '1px solid rgba(0,0,0,0.10)', borderRadius: 10,
+                                         padding: '12px 14px', background: '#fafaf9' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+                    {r.requester_name || r.requester_email}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b6b66', marginBottom: 10 }}>
+                    {r.requester_email} · solicita edição de:
+                    <b style={{ color: '#1a1a1a' }}> {r.node_title || r.node_id}</b>
+                    <span style={{ marginLeft: 8, color: '#aaa' }}>
+                      {new Date(r.created_at).toLocaleString('pt-BR')}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-primary"
+                            style={{ height: 28, padding: '0 14px', fontSize: 12, background: '#3d8c4d', borderColor: '#3d8c4d' }}
+                            disabled={resolving === r.id}
+                            onClick={() => resolve(r.id, 'approved')}>
+                      ✓ Aprovar
+                    </button>
+                    <button className="btn-ghost"
+                            style={{ height: 28, padding: '0 14px', fontSize: 12, color: '#a52828' }}
+                            disabled={resolving === r.id}
+                            onClick={() => resolve(r.id, 'denied')}>
+                      ✗ Reprovar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Modal de Backup (salvar / importar)
 function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, onClose, onImport }) {
   const [tab, setTab] = React.useState('save');
@@ -1220,6 +1302,10 @@ function App() {
   const [showSimulatePanel, setShowSimulatePanel] = React.useState(false);
   const [userList, setUserList] = React.useState({ admins: [], users: [] });
   const [updateToast, setUpdateToast] = React.useState(false);
+  const [pendingRequestsCount, setPendingRequestsCount] = React.useState(0);
+  const [showRequestsPanel, setShowRequestsPanel] = React.useState(false);
+  const [myRequests, setMyRequests] = React.useState({}); // nodeId → status
+  const [accessToast, setAccessToast] = React.useState(null); // { status, nodeTitle }
 
   // Aplica subflows do serverDoc ao localStorage imediatamente no primeiro carregamento
   // para que as imagens apareçam sem esperar o applyLiveDoc assíncrono
@@ -1390,6 +1476,30 @@ function App() {
       } catch(_) {}
     });
 
+    // Nova solicitação recebida → admin atualiza badge
+    es.addEventListener('access_request_new', () => {
+      if (IS_ADMIN && !SIMULATE_AS) {
+        setPendingRequestsCount(n => n + 1);
+      }
+    });
+
+    // Solicitação resolvida → usuário recebe toast e atualiza status local
+    es.addEventListener('access_request_resolved', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        // Usuário real ou admin simulando: verifica se é para este "ator"
+        const actingEmail = SIMULATE_AS || CURRENT_USER?.email;
+        if (actingEmail === data.requesterEmail) {
+          setMyRequests(prev => ({ ...prev, [data.nodeId]: data.status }));
+          setAccessToast({ status: data.status, nodeId: data.nodeId });
+          setTimeout(() => setAccessToast(null), 5000);
+        }
+        if (IS_ADMIN && !SIMULATE_AS) {
+          setPendingRequestsCount(n => Math.max(0, n - 1));
+        }
+      } catch(_) {}
+    });
+
     return () => es.close();
   }, []);
 
@@ -1527,6 +1637,35 @@ function App() {
       .then(r => r.json())
       .then(d => { if (d.ok) setUserList(d.data); });
   }, []);
+
+  // carrega solicitações: admin vê contagem pendente; usuário (ou simulado) vê suas próprias
+  React.useEffect(() => {
+    if (PUBLISHED_SLUG || !CURRENT_USER) return;
+    if (IS_ADMIN && !SIMULATE_AS) {
+      fetch('/api/access-requests')
+        .then(r => r.json())
+        .then(d => { if (d.ok) setPendingRequestsCount(d.requests.length); });
+    } else {
+      const url = SIMULATE_AS
+        ? `/api/access-request/mine?simulate_as=${encodeURIComponent(SIMULATE_AS)}`
+        : '/api/access-request/mine';
+      fetch(url)
+        .then(r => r.json())
+        .then(d => { if (d.ok) setMyRequests(d.requests); });
+    }
+  }, []);
+
+  const requestAccess = async (nodeId, nodeTitle) => {
+    const body = { nodeId, nodeTitle };
+    if (SIMULATE_AS) body.simulateAs = SIMULATE_AS;
+    const res = await fetch('/api/access-request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setMyRequests(prev => ({ ...prev, [nodeId]: 'pending' }));
+    }
+  };
 
   const enterEditor = () => { setEditorMode(true); setOpenNode(null); };
   const exitEditor = () => {
@@ -1703,6 +1842,18 @@ function App() {
                     <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowUserPanel(true)}>
                       👥 Usuários
                     </button>
+                    <button className="btn-ghost" style={{ fontSize: 12, position: 'relative' }}
+                            onClick={() => setShowRequestsPanel(true)}>
+                      🔔 Acessos
+                      {pendingRequestsCount > 0 && (
+                        <span style={{ position: 'absolute', top: -4, right: -4, background: '#c97639',
+                                       color: '#fff', borderRadius: '50%', width: 16, height: 16,
+                                       fontSize: 10, fontWeight: 700, display: 'flex',
+                                       alignItems: 'center', justifyContent: 'center' }}>
+                          {pendingRequestsCount}
+                        </span>
+                      )}
+                    </button>
                     {!SIMULATE_AS && (
                       <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowSimulatePanel(true)}>
                         Simular
@@ -1877,7 +2028,9 @@ function App() {
       {openNode && (
         <NodeModal node={openNode} popupStyle={t.popupStyle}
                    editorMode={editorMode || canEditNode(openNode)}
-                   onClose={() => setOpenNode(null)} />
+                   onClose={() => setOpenNode(null)}
+                   onRequestAccess={!IS_ADMIN && !PUBLISHED_SLUG && !canEditNode(openNode) ? requestAccess : undefined}
+                   requestStatus={myRequests[openNode?.id]} />
       )}
       {showPublish && (
         <PublishDialog
@@ -1900,6 +2053,22 @@ function App() {
       )}
       {showSimulatePanel && (
         <SimulatePanel onClose={() => setShowSimulatePanel(false)} />
+      )}
+      {showRequestsPanel && (
+        <RequestsPanel
+          onClose={() => setShowRequestsPanel(false)}
+          onResolve={() => setPendingRequestsCount(n => Math.max(0, n - 1))}
+        />
+      )}
+      {accessToast && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+                      zIndex: 9999, background: accessToast.status === 'approved' ? '#3d8c4d' : '#a52828',
+                      color: '#fff', padding: '12px 24px', borderRadius: 10, fontWeight: 600,
+                      fontSize: 14, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', maxWidth: 380, textAlign: 'center' }}>
+          {accessToast.status === 'approved'
+            ? '✓ Acesso aprovado! Recarregue a página para editar.'
+            : '✗ Sua solicitação de acesso foi reprovada.'}
+        </div>
       )}
 
       <LegendFooter

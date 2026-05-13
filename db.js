@@ -57,6 +57,17 @@ async function init() {
         data       TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS access_requests (
+        id              SERIAL PRIMARY KEY,
+        node_id         TEXT NOT NULL,
+        node_title      TEXT NOT NULL DEFAULT '',
+        requester_email TEXT NOT NULL,
+        requester_name  TEXT NOT NULL DEFAULT '',
+        status          TEXT NOT NULL DEFAULT 'pending',
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        resolved_at     TIMESTAMPTZ,
+        resolved_by     TEXT
+      );
     `);
 
     // Remover sessões com mais de 1 ano
@@ -300,6 +311,50 @@ async function publishedExists(slug) {
   return rows.length > 0;
 }
 
+// ── Solicitações de acesso ────────────────────────────────────────────────────
+
+async function createAccessRequest(nodeId, nodeTitle, requesterEmail, requesterName) {
+  const existing = await pool.query(
+    'SELECT id, status FROM access_requests WHERE node_id=$1 AND requester_email=$2 AND status=$3',
+    [nodeId, requesterEmail, 'pending']
+  );
+  if (existing.rows.length > 0) return { id: existing.rows[0].id, alreadyExists: true };
+  const { rows } = await pool.query(
+    'INSERT INTO access_requests (node_id, node_title, requester_email, requester_name) VALUES ($1,$2,$3,$4) RETURNING id',
+    [nodeId, nodeTitle, requesterEmail, requesterName]
+  );
+  return { id: rows[0].id, alreadyExists: false };
+}
+
+async function listAccessRequests(status = 'pending') {
+  const { rows } = await pool.query(
+    'SELECT * FROM access_requests WHERE status=$1 ORDER BY created_at DESC',
+    [status]
+  );
+  return rows;
+}
+
+async function resolveAccessRequest(id, status, resolvedBy) {
+  const { rows } = await pool.query(
+    'UPDATE access_requests SET status=$1, resolved_at=NOW(), resolved_by=$2 WHERE id=$3 RETURNING *',
+    [status, resolvedBy, id]
+  );
+  return rows[0] || null;
+}
+
+async function getMyAccessRequests(email) {
+  const { rows } = await pool.query(
+    'SELECT node_id, status FROM access_requests WHERE requester_email=$1 ORDER BY created_at DESC',
+    [email]
+  );
+  // Retorna mapa nodeId → status mais recente
+  const map = {};
+  for (const r of rows) {
+    if (!map[r.node_id]) map[r.node_id] = r.status;
+  }
+  return map;
+}
+
 // ── Imagens ───────────────────────────────────────────────────────────────────
 
 async function saveImage(filename, mimetype, base64data) {
@@ -345,4 +400,5 @@ module.exports = {
   loadPublished, savePublished, publishedExists,
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
+  createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
 };
