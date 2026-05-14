@@ -1406,6 +1406,7 @@ function App() {
   // Refs sempre atualizados — usados em closures estáveis para o sync
   const nodesRef          = React.useRef(nodes);
   const edgesRef          = React.useRef(edges);
+  const docTitleRef       = React.useRef(docTitle);
   const flowTitleRef      = React.useRef(flowTitle);
   const flowLogoRef       = React.useRef(flowLogo);
   const flowTitleFontRef  = React.useRef(flowTitleFont);
@@ -1414,6 +1415,7 @@ function App() {
   const legendConfigRef   = React.useRef(legendConfig);
   React.useEffect(() => { nodesRef.current          = nodes;         }, [nodes]);
   React.useEffect(() => { edgesRef.current          = edges;         }, [edges]);
+  React.useEffect(() => { docTitleRef.current       = docTitle;      }, [docTitle]);
   React.useEffect(() => { flowTitleRef.current      = flowTitle;     }, [flowTitle]);
   React.useEffect(() => { flowLogoRef.current       = flowLogo;      }, [flowLogo]);
   React.useEffect(() => { flowTitleFontRef.current  = flowTitleFont; }, [flowTitleFont]);
@@ -1421,21 +1423,44 @@ function App() {
   React.useEffect(() => { legendRef.current         = legend;        }, [legend]);
   React.useEffect(() => { legendConfigRef.current   = legendConfig;  }, [legendConfig]);
 
-  // Sync de doc live: envia nodes+edges ao servidor após mudança de allowedUsers
-  const syncTimer = React.useRef(null);
-  const flushDocSync = () => {
+  // Monta o payload completo do doc a partir dos refs
+  const buildDocPayload = () => {
     let subflows = {};
     try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(e) {}
-    fetch('/api/doc/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current, subflows, flowTitle: flowTitleRef.current, flowLogo: flowLogoRef.current, flowTitleFont: flowTitleFontRef.current, flowTitleSize: flowTitleSizeRef.current, legend: legendRef.current, legendConfig: legendConfigRef.current }),
-    }).catch(() => {});
+    return {
+      nodes: nodesRef.current, edges: edgesRef.current,
+      title: docTitleRef.current,
+      subflows,
+      flowTitle: flowTitleRef.current, flowLogo: flowLogoRef.current,
+      flowTitleFont: flowTitleFontRef.current, flowTitleSize: flowTitleSizeRef.current,
+      legend: legendRef.current, legendConfig: legendConfigRef.current,
+    };
+  };
+
+  // Sync de doc live — envia para o banco via fetch (ou sendBeacon no unload)
+  const syncTimer = React.useRef(null);
+  const flushDocSync = (beacon = false) => {
+    clearTimeout(syncTimer.current);
+    const payload = JSON.stringify(buildDocPayload());
+    if (beacon && navigator.sendBeacon) {
+      // sendBeacon garante entrega mesmo quando a página está fechando
+      navigator.sendBeacon('/api/doc/sync', new Blob([payload], { type: 'application/json' }));
+    } else {
+      fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {});
+    }
   };
   const debouncedDocSync = () => {
     clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(flushDocSync, 800);
+    syncTimer.current = setTimeout(() => flushDocSync(false), 800);
   };
+
+  // Garante sync antes de fechar/recarregar a página
+  React.useEffect(() => {
+    if (!IS_ADMIN || SIMULATE_AS || PUBLISHED_SLUG) return;
+    const onUnload = () => flushDocSync(true);
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
+  }, []);
 
   // SSE global: recebe atualizações de permissões em tempo real
   React.useEffect(() => {
@@ -1505,8 +1530,15 @@ function App() {
     es.addEventListener('access_request_resolved', (e) => {
       try {
         const data = JSON.parse(e.data);
-        // Sempre atualiza os nodes (admin vê allowedUsers atualizado, popup aberto reflete novo acesso)
-        applyLiveDoc();
+        if (data.status === 'approved') {
+          // Atualiza só o allowedUsers do nó específico — sem sobrescrever o doc inteiro
+          setNodes(prev => prev.map(n => {
+            if (n.id !== data.nodeId) return n;
+            const au = Array.isArray(n.allowedUsers) ? n.allowedUsers : [];
+            if (au.includes(data.requesterEmail)) return n;
+            return { ...n, allowedUsers: [...au, data.requesterEmail] };
+          }));
+        }
         // Usuário real ou admin simulando: verifica se é para este "ator"
         const actingEmail = SIMULATE_AS || CURRENT_USER?.email;
         if (actingEmail === data.requesterEmail) {
@@ -2051,7 +2083,8 @@ function App() {
                    editorMode={editorMode || canEditNode(openNode)}
                    onClose={() => setOpenNodeId(null)}
                    onRequestAccess={!IS_ADMIN && !PUBLISHED_SLUG && !canEditNode(openNode) ? requestAccess : undefined}
-                   requestStatus={myRequests[openNode?.id]} />
+                   requestStatus={myRequests[openNode?.id]}
+                   onSubflowChange={IS_ADMIN && !SIMULATE_AS ? debouncedDocSync : undefined} />
       )}
       {showPublish && (
         <PublishDialog

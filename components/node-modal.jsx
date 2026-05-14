@@ -639,7 +639,7 @@ function SubflowViewer({ subflow }) {
 }
 
 // ─── Wrapper que troca entre modal / drawer / drill ───────────────────────────
-function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAccess, requestStatus }) {
+function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAccess, requestStatus, onSubflowChange }) {
   const [allSubflows, setAllSubflows] = React.useState(loadSubflows);
   const subflow = allSubflows[node?.id] || makeEmptySubflow(node?.color);
 
@@ -647,6 +647,7 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     const all = { ...allSubflows, [node.id]: next };
     setAllSubflows(all);
     saveSubflows(all);
+    onSubflowChange?.();
   };
 
   React.useEffect(() => {
