@@ -311,6 +311,11 @@ async function publishedExists(slug) {
   return rows.length > 0;
 }
 
+async function getLastPublishedSlug() {
+  const { rows } = await pool.query('SELECT slug FROM published_flows ORDER BY updated_at DESC LIMIT 1');
+  return rows[0]?.slug || null;
+}
+
 // ── Solicitações de acesso ────────────────────────────────────────────────────
 
 async function createAccessRequest(nodeId, nodeTitle, requesterEmail, requesterName) {
@@ -397,7 +402,7 @@ module.exports = {
   loadUsers, saveUsers,
   getSessionByToken, setSession, updateSessionAdmins, revokeDeletedUserSessions,
   loadLiveDoc, saveLiveDoc,
-  loadPublished, savePublished, publishedExists,
+  loadPublished, savePublished, publishedExists, getLastPublishedSlug,
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,

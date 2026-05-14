@@ -1464,6 +1464,20 @@ function App() {
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
 
+  // Carrega o último slug publicado do banco (para não perder referência entre sessões/dispositivos)
+  React.useEffect(() => {
+    if (!IS_ADMIN || PUBLISHED_SLUG) return;
+    fetch('/api/publish/last-slug')
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok && d.slug) {
+          setLastPublishedSlug(d.slug);
+          try { localStorage.setItem('fluxograma:last-slug', d.slug); } catch (_) {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // SSE global: recebe atualizações de permissões em tempo real
   React.useEffect(() => {
     if (!CURRENT_USER || PUBLISHED_SLUG) return;
@@ -1486,6 +1500,7 @@ function App() {
           // Subflows ficam no localStorage — sincronizar junto com o resto
           if (d.data.subflows) {
             try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (_) {}
+            window.dispatchEvent(new CustomEvent('subflows-updated'));
           }
         })
         .catch(() => {});
@@ -1673,6 +1688,7 @@ function App() {
     if (data.legendConfig  != null) setLegendConfig(data.legendConfig);
     if (data.subflows) {
       try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(data.subflows)); } catch (e) {}
+      window.dispatchEvent(new CustomEvent('subflows-updated'));
     }
   };
 

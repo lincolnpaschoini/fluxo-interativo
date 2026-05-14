@@ -656,6 +656,13 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Recarrega subflows do localStorage quando outro usuário salva via SSE
+  React.useEffect(() => {
+    const handler = () => setAllSubflows(loadSubflows());
+    window.addEventListener('subflows-updated', handler);
+    return () => window.removeEventListener('subflows-updated', handler);
+  }, []);
+
   if (!node) return null;
   const color = window.NODE_COLORS[node.color] || window.NODE_COLORS.blue;
   const title = node.label.replace(/\n/g, ' ');

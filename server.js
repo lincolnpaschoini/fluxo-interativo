@@ -544,6 +544,16 @@ const server = http.createServer(async (req, res) => {
 
   // ── Publish ───────────────────────────────────────────────────────────────
 
+  if (req.url === '/api/publish/last-slug' && req.method === 'GET') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const slug = await db.getLastPublishedSlug();
+      sendJson(res, 200, { ok: true, slug: slug || '' });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
   if (req.url === '/api/publish/save' && req.method === 'POST') {
     if (!await getSession(req)) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
     try {
