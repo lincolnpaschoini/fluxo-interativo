@@ -1383,6 +1383,7 @@ function App() {
         if (d.data.legendConfig != null) setLegendConfig(d.data.legendConfig);
         if (d.data.subflows) {
           try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (e) {}
+          window.dispatchEvent(new CustomEvent('subflows-updated'));
         }
         if (showToast) {
           setUpdateToast(true);
