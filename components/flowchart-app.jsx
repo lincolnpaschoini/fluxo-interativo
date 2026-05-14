@@ -1352,7 +1352,9 @@ function App() {
       if (!bkRes.ok) throw new Error('Falha ao salvar backup');
 
       // 2. Sincroniza o live_doc → notifica todos via SSE em tempo real
-      const syncRes = await fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(docPayload) });
+      const syncPayload = { ...docPayload };
+      if (SIMULATE_AS) syncPayload.simulateAs = SIMULATE_AS;
+      const syncRes = await fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(syncPayload) });
       if (syncRes.status === 401) { window.location.href = '/login'; return; }
       if (!syncRes.ok) throw new Error('Falha ao sincronizar');
 

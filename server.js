@@ -430,7 +430,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       await db.saveLiveDoc(body);
-      notifyMainClients('doc_updated', { by: session.email });
+      const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
+      notifyMainClients('doc_updated', { by: effectiveBy });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
