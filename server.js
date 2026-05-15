@@ -452,10 +452,21 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/api/images/upload' && req.method === 'POST') {
     if (!await getSession(req)) { sendJson(res, 401, { ok: false }); return; }
+    // Rejeita uploads > 8 MB (base64 de ~6 MB de imagem)
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > 8 * 1024 * 1024) {
+      sendJson(res, 413, { ok: false, error: 'Imagem muito grande (máximo 6 MB)' });
+      return;
+    }
     try {
       const { filename = 'image', data } = await readBody(req);
       const m = (data || '').match(/^data:([^;]+);base64,(.+)$/s);
       if (!m) { sendJson(res, 400, { ok: false, error: 'Dados inválidos' }); return; }
+      // Validação de tamanho pelo conteúdo real (base64 ≈ 4/3 do binário)
+      if (m[2].length > 8 * 1024 * 1024) {
+        sendJson(res, 413, { ok: false, error: 'Imagem muito grande (máximo 6 MB)' });
+        return;
+      }
       const ext  = filename.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
       const safe = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
       // Salva sempre no banco de dados (fonte de verdade permanente)
@@ -489,15 +500,19 @@ const server = http.createServer(async (req, res) => {
     // 2. Busca no banco de dados
     try {
       const img = await db.loadImage(fname);
-      if (!img) { res.writeHead(404); res.end(); return; }
+      if (!img) {
+        // no-store: impede que o browser cache o 404 e bloqueie tentativas futuras
+        res.writeHead(404, { 'Cache-Control': 'no-store' }); res.end(); return;
+      }
       const mime   = img.mimetype || MIMES[ext] || 'application/octet-stream';
       const buffer = Buffer.from(img.data, 'base64');
       // Cacheia localmente para próximas requisições
       try { fs.writeFileSync(filepath, buffer); } catch (_) {}
-      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=31536000' });
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=31536000, immutable' });
       res.end(buffer);
     } catch (e) {
-      res.writeHead(500); res.end();
+      console.log('>>> ERRO SERVE IMAGE:', fname, e.message);
+      res.writeHead(500, { 'Cache-Control': 'no-store' }); res.end();
     }
     return;
   }

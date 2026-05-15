@@ -137,12 +137,19 @@ function RichTextEditor({ value, onChange, placeholder }) {
 function ImageGallery({ images, editorMode, onAddMany, onRemove }) {
   const [lightbox, setLightbox] = React.useState(null);
   const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState('');
 
   const handleFiles = (files) => {
     const fileArray = Array.from(files);
     if (!fileArray.length) return;
     setUploading(true);
+    setUploadError('');
     Promise.all(fileArray.map(file => new Promise(resolve => {
+      // Validação de tamanho no cliente (limite de 6 MB)
+      if (file.size > 6 * 1024 * 1024) {
+        resolve({ error: `"${file.name}" é grande demais (máximo 6 MB)` });
+        return;
+      }
       const reader = new FileReader();
       reader.onload = (e) => {
         fetch('/api/images/upload', {
@@ -151,13 +158,18 @@ function ImageGallery({ images, editorMode, onAddMany, onRemove }) {
           body: JSON.stringify({ filename: file.name, data: e.target.result }),
         })
           .then(r => r.json())
-          .then(d => resolve(d.ok ? { id: 'img' + Date.now() + Math.random(), url: d.url, caption: '' } : null))
-          .catch(() => resolve(null));
+          .then(d => resolve(d.ok
+            ? { id: 'img' + Date.now() + Math.random(), url: d.url, caption: '' }
+            : { error: d.error || 'Falha ao enviar imagem' }
+          ))
+          .catch(() => resolve({ error: 'Erro de conexão ao enviar imagem' }));
       };
       reader.readAsDataURL(file);
     }))).then(results => {
       setUploading(false);
-      const newImgs = results.filter(Boolean);
+      const errors = results.filter(r => r && r.error).map(r => r.error);
+      const newImgs = results.filter(r => r && r.url);
+      if (errors.length) setUploadError(errors.join(' · '));
       if (newImgs.length && onAddMany) onAddMany(newImgs);
     });
   };
@@ -188,16 +200,26 @@ function ImageGallery({ images, editorMode, onAddMany, onRemove }) {
         </div>
       )}
       {editorMode && (
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11,
-                        padding: '3px 8px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.18)',
-                        background: uploading ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.55)',
-                        cursor: uploading ? 'default' : 'pointer', userSelect: 'none',
-                        opacity: uploading ? 0.7 : 1 }}>
-          <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                 disabled={uploading}
-                 onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }} />
-          {uploading ? '⏳ Enviando...' : '🖼 Adicionar imagens'}
-        </label>
+        <>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11,
+                          padding: '3px 8px', borderRadius: 4, border: '1px solid rgba(0,0,0,0.18)',
+                          background: uploading ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.55)',
+                          cursor: uploading ? 'default' : 'pointer', userSelect: 'none',
+                          opacity: uploading ? 0.7 : 1 }}>
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                   disabled={uploading}
+                   onChange={(e) => { handleFiles(e.target.files); e.target.value = ''; }} />
+            {uploading ? '⏳ Enviando...' : '🖼 Adicionar imagens'}
+          </label>
+          {uploadError && (
+            <div style={{ marginTop: 4, fontSize: 11, color: '#a52828', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span>⚠</span> {uploadError}
+              <button onClick={() => setUploadError('')}
+                      style={{ marginLeft: 4, background: 'none', border: 'none', cursor: 'pointer',
+                               color: '#a52828', fontSize: 11, padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          )}
+        </>
       )}
       {lightbox !== null && (
         <Lightbox images={images} startIdx={lightbox} onClose={() => setLightbox(null)} />
