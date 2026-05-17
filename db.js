@@ -13,10 +13,11 @@ try {
 
 const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/fluxograma';
 const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
+const sslDisabled = /sslmode=disable/.test(connectionString);
 
 const pool = new Pool({
   connectionString,
-  ssl: isLocal ? false : { rejectUnauthorized: false },
+  ssl: (isLocal || sslDisabled) ? false : { rejectUnauthorized: false },
 });
 
 async function init() {
