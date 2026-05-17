@@ -449,6 +449,7 @@ function FlowchartCanvas({
   const [view, setView] = React.useState({ x: 0, y: 0, k: initialZoom !== undefined ? initialZoom : 1 });
   const [fitted, setFitted] = React.useState(initialZoom !== undefined);
   const dragRef = React.useRef(null);
+  const touchRef = React.useRef(null);
   const nodeMap = React.useMemo(
     () => Object.fromEntries(nodes.map((n) => [n.id, n])),
     [nodes],
@@ -576,6 +577,55 @@ function FlowchartCanvas({
     document.body.style.cursor = '';
   };
 
+  const onTouchStart = (e) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      if (touch.target.closest('.fc-node, .fc-edge')) return;
+      if (onCanvasMouseDown) onCanvasMouseDown();
+      touchRef.current = {
+        kind: 'pan',
+        sx: touch.clientX, sy: touch.clientY,
+        vx: view.x, vy: view.y,
+      };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[1].clientX - e.touches[0].clientX;
+      const dy = e.touches[1].clientY - e.touches[0].clientY;
+      touchRef.current = {
+        kind: 'pinch',
+        dist: Math.hypot(dx, dy),
+        mx: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        my: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        k0: view.k, vx0: view.x, vy0: view.y,
+      };
+    }
+  };
+  const onTouchEnd = () => { touchRef.current = null; };
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleTouchMove = (e) => {
+      const t = touchRef.current;
+      if (!t) return;
+      e.preventDefault();
+      if (t.kind === 'pan' && e.touches.length === 1) {
+        const touch = e.touches[0];
+        setView(v => ({ ...v, x: t.vx + (touch.clientX - t.sx), y: t.vy + (touch.clientY - t.sy) }));
+      } else if (t.kind === 'pinch' && e.touches.length === 2) {
+        const dx = e.touches[1].clientX - e.touches[0].clientX;
+        const dy = e.touches[1].clientY - e.touches[0].clientY;
+        const dist = Math.hypot(dx, dy);
+        const newK = Math.min(4, Math.max(0.15, t.k0 * (dist / t.dist)));
+        const r = el.getBoundingClientRect();
+        const px = t.mx - r.left, py = t.my - r.top;
+        const wx = (px - t.vx0) / t.k0, wy = (py - t.vy0) / t.k0;
+        setView({ k: newK, x: px - wx * newK, y: py - wy * newK });
+      }
+    };
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', handleTouchMove);
+  }, []);
+
   const fit = () => setFitted(false);
   const zoomBy = (f) => {
     const r = containerRef.current.getBoundingClientRect();
@@ -622,6 +672,8 @@ function FlowchartCanvas({
          onMouseMove={onMouseMove}
          onMouseUp={onMouseUp}
          onMouseLeave={onMouseUp}
+         onTouchStart={onTouchStart}
+         onTouchEnd={onTouchEnd}
          onDragOver={onDragOver}
          onDrop={onDrop}>
       <svg width="100%" height="100%" style={{ display: 'block' }}>
