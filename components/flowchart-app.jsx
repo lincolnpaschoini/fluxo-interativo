@@ -1577,7 +1577,9 @@ function AuditModal({ onClose }) {
                               <div style={{ paddingLeft: 12, marginTop: 3 }}>
                                 <div style={{ fontSize: 12, color: '#a52828' }}>· Tinha {item.links.length} link(s)</div>
                                 {item.links.map((l, k) => (
-                                  <div key={k} style={{ paddingLeft: 10, fontSize: 12, color: '#888' }}>{l.label || l.url || '—'}</div>
+                                  <div key={k} style={{ paddingLeft: 10, fontSize: 12 }}>
+                                    {l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1f5dbb', wordBreak: 'break-all' }}>{l.label ? `${l.label} — ${l.url}` : l.url}</a> : <span style={{ color: '#888' }}>{l.label || '—'}</span>}
+                                  </div>
                                 ))}
                               </div>
                             )}
