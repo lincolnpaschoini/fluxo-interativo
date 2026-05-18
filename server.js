@@ -59,16 +59,27 @@ function mergeDoc(base, client, server) {
       mergedEdges.push(edge);
   }
 
-  // Subflows: merge por chave (nodeId)
-  const baseSubflows   = base.subflows   || {};
-  const clientSubflows = client.subflows || {};
-  const serverSubflows = server.subflows || {};
-  const mergedSubflows = { ...serverSubflows };
-  for (const key of Object.keys(baseSubflows)) {
-    if (!(key in clientSubflows)) delete mergedSubflows[key]; // cliente deletou
-  }
-  for (const [key, val] of Object.entries(clientSubflows)) {
-    mergedSubflows[key] = val; // cliente adicionou/editou
+  // Subflows: merge three-way explícito por chave (nodeId)
+  const baseSf   = base.subflows   || {};
+  const clientSf = client.subflows || {};
+  const serverSf = server.subflows || {};
+  const mergedSubflows = {};
+  const allSfKeys = new Set([...Object.keys(baseSf), ...Object.keys(clientSf), ...Object.keys(serverSf)]);
+  for (const key of allSfKeys) {
+    const inBase   = key in baseSf;
+    const inClient = key in clientSf;
+    const inServer = key in serverSf;
+    if (!inBase && inServer && !inClient) {
+      mergedSubflows[key] = serverSf[key]; // servidor adicionou após client sincronizar → sempre preserva
+    } else if (!inBase && inClient) {
+      mergedSubflows[key] = clientSf[key]; // cliente adicionou → usa versão do cliente
+    } else if (inBase && !inClient) {
+      // cliente deletou explicitamente → não adiciona (respeita deleção)
+    } else if (inClient) {
+      mergedSubflows[key] = clientSf[key]; // cliente tem versão → cliente vence
+    } else if (inServer) {
+      mergedSubflows[key] = serverSf[key]; // só sobrou no servidor → preserva
+    }
   }
 
   const { _baseNodes, _baseEdges, _baseSubflows, ...clientClean } = client;

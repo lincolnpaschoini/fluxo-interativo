@@ -1758,9 +1758,10 @@ function App() {
   const [showAudit, setShowAudit] = React.useState(false);
 
   // Aplica subflows do serverDoc ao localStorage imediatamente no primeiro carregamento
-  // para que as imagens apareçam sem esperar o applyLiveDoc assíncrono
+  // IMPORTANTE: inclui admins — sem isso o admin salva com localStorage desatualizado
+  // e o merge interpreta os subflows de outros usuários como "deletados" pelo admin
   React.useEffect(() => {
-    if (!PUBLISHED_SLUG && (!IS_ADMIN || SIMULATE_AS) && initial?.subflows) {
+    if (!PUBLISHED_SLUG && initial?.subflows) {
       try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(initial.subflows)); } catch (_) {}
     }
   }, []);
