@@ -1528,11 +1528,59 @@ function AuditModal({ onClose }) {
                         </div>
                       )}
                       {meta.edited  && meta.edited.length > 0 && meta.edited.map((e, i) => (
-                        <div key={i} style={{ marginBottom: 6 }}>
+                        <div key={i} style={{ marginBottom: 8 }}>
                           <div style={{ fontWeight: 600, color: '#1f5dbb' }}>✎ {typeof e === 'string' ? e : e.title}</div>
-                          {typeof e !== 'string' && e.changes && e.changes.map((c, j) => (
-                            <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· {c}</div>
-                          ))}
+                          {typeof e !== 'string' && e.changes && e.changes.map((ch, j) => {
+                            if (typeof ch === 'string') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· {ch}</div>;
+                            if (ch.type === 'title')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Título: <span style={{ color: '#a52828' }}>"{ch.before}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after}"</span></div>;
+                            if (ch.type === 'desc')     return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição alterada</div>;
+                            if (ch.type === 'owner')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Responsável: <span style={{ color: '#a52828' }}>"{ch.before || '—'}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after || '—'}"</span></div>;
+                            if (ch.type === 'duration') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Duração: <span style={{ color: '#a52828' }}>"{ch.before || '—'}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after || '—'}"</span></div>;
+                            if (ch.type === 'color')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Cor: {ch.before} → {ch.after}</div>;
+                            if (ch.type === 'substeps') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Sub-etapas alteradas</div>;
+                            if (ch.type === 'images_added' || ch.type === 'images_removed') {
+                              const isAdd = ch.type === 'images_added';
+                              return (
+                                <div key={j} style={{ paddingLeft: 12, marginTop: 4, marginBottom: 4 }}>
+                                  <div style={{ fontSize: 12, color: isAdd ? '#3d8c4d' : '#a52828', fontWeight: 500 }}>
+                                    · {isAdd ? `+${ch.images.length} imagem(ns) adicionada(s)` : `−${ch.images.length} imagem(ns) removida(s)`}
+                                  </div>
+                                  {ch.images.some(img => img.url) && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 10, marginTop: 5 }}>
+                                      {ch.images.map((img, k) => img.url ? (
+                                        <img key={k} src={img.url} alt={img.caption || ''}
+                                             title={img.caption || ''}
+                                             style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 5,
+                                                      border: `2px solid ${isAdd ? '#3d8c4d' : '#a52828'}`,
+                                                      cursor: 'pointer', opacity: isAdd ? 1 : 0.6 }}
+                                             onClick={() => window.open(img.url, '_blank')} />
+                                      ) : null)}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            if (ch.type === 'links_added' || ch.type === 'links_removed' || ch.type === 'links_changed') {
+                              const clr = { links_added: '#3d8c4d', links_removed: '#a52828', links_changed: '#1f5dbb' }[ch.type];
+                              const lbl = { links_added: `+${ch.links.length} link(s) adicionado(s)`, links_removed: `−${ch.links.length} link(s) removido(s)`, links_changed: `✎ ${ch.links.length} link(s) alterado(s)` }[ch.type];
+                              return (
+                                <div key={j} style={{ paddingLeft: 12, marginTop: 3 }}>
+                                  <div style={{ fontSize: 12, color: clr, fontWeight: 500 }}>· {lbl}</div>
+                                  {ch.links.map((l, k) => (
+                                    <div key={k} style={{ paddingLeft: 10, fontSize: 12, marginTop: 2 }}>
+                                      {l.url
+                                        ? <a href={l.url} target="_blank" rel="noopener noreferrer"
+                                             style={{ color: '#1f5dbb', wordBreak: 'break-all' }}>
+                                            {l.label ? `${l.label} — ${l.url}` : l.url}
+                                          </a>
+                                        : <span style={{ color: '#888' }}>{l.label || '—'}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })}
                         </div>
                       ))}
                       {/* node_add/delete or subflow_add/delete: summary props */}

@@ -127,10 +127,10 @@ function diffDocs(before, after) {
     const nodeLabel = ((aNodes[key] || bNodes[key] || {}).label || key).slice(0, 60);
     if (!bSf[key] && aSf[key]) {
       entries.push({ action: 'subflow_add', target: key, description: `Sub-fluxo criado: "${nodeLabel}"`,
-        metadata: { stepCount: (aSf[key]?.items || []).length } });
+        metadata: { stepCount: (aSf[key]?.steps || []).length } });
     } else if (bSf[key] && !aSf[key]) {
       entries.push({ action: 'subflow_delete', target: key, description: `Sub-fluxo removido: "${nodeLabel}"`,
-        metadata: { stepCount: (bSf[key]?.items || []).length } });
+        metadata: { stepCount: (bSf[key]?.steps || []).length } });
     } else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key])) {
       const bSteps = bSf[key]?.steps || [];
       const aSteps = aSf[key]?.steps || [];
@@ -145,15 +145,40 @@ function diffDocs(before, after) {
           removed.push(bs.title || 'Etapa');
         } else if (bs && as_ && JSON.stringify(bs) !== JSON.stringify(as_)) {
           const stepChanges = [];
-          if (bs.title !== as_.title) stepChanges.push(`Título: "${bs.title}" → "${as_.title}"`);
-          if (bs.desc  !== as_.desc)  stepChanges.push('Descrição alterada');
-          if (bs.owner !== as_.owner) stepChanges.push(`Responsável: "${bs.owner || '—'}" → "${as_.owner || '—'}"`);
-          if (bs.duration !== as_.duration) stepChanges.push(`Duração: "${bs.duration || '—'}" → "${as_.duration || '—'}"`);
-          if (bs.color !== as_.color) stepChanges.push(`Cor: ${bs.color} → ${as_.color}`);
-          const bImgs = (bs.images || []).length, aImgs = (as_.images || []).length;
-          if (bImgs !== aImgs) stepChanges.push(aImgs > bImgs ? `+${aImgs - bImgs} imagem(ns)` : `-${bImgs - aImgs} imagem(ns)`);
-          if (JSON.stringify(bs.links || []) !== JSON.stringify(as_.links || [])) stepChanges.push('Links alterados');
-          if (JSON.stringify(bs.subSteps || []) !== JSON.stringify(as_.subSteps || [])) stepChanges.push('Sub-etapas alteradas');
+          if (bs.title !== as_.title)
+            stepChanges.push({ type: 'title', before: bs.title || '', after: as_.title || '' });
+          if (bs.desc  !== as_.desc)
+            stepChanges.push({ type: 'desc' });
+          if ((bs.owner || '') !== (as_.owner || ''))
+            stepChanges.push({ type: 'owner', before: bs.owner || '', after: as_.owner || '' });
+          if ((bs.duration || '') !== (as_.duration || ''))
+            stepChanges.push({ type: 'duration', before: bs.duration || '', after: as_.duration || '' });
+          if (bs.color !== as_.color)
+            stepChanges.push({ type: 'color', before: bs.color, after: as_.color });
+
+          // Images: diff by id
+          const bImgMap = Object.fromEntries((bs.images || []).map(i => [i.id, i]));
+          const aImgMap = Object.fromEntries((as_.images || []).map(i => [i.id, i]));
+          const addedImgs   = (as_.images || []).filter(i => !bImgMap[i.id]);
+          const removedImgs = (bs.images || []).filter(i => !aImgMap[i.id]);
+          // Store URL only if it's a server path (not a huge base64 blob)
+          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
+          if (addedImgs.length)   stepChanges.push({ type: 'images_added',   images: addedImgs.map(i   => ({ url: safeUrl(i.url),   caption: i.caption || '' })) });
+          if (removedImgs.length) stepChanges.push({ type: 'images_removed', images: removedImgs.map(i => ({ url: safeUrl(i.url),   caption: i.caption || '' })) });
+
+          // Links: diff by id
+          const bLinkMap = Object.fromEntries((bs.links || []).map(l => [l.id, l]));
+          const aLinkMap = Object.fromEntries((as_.links || []).map(l => [l.id, l]));
+          const addedLinks   = (as_.links || []).filter(l => !bLinkMap[l.id]);
+          const removedLinks = (bs.links || []).filter(l => !aLinkMap[l.id]);
+          const changedLinks = (as_.links || []).filter(l => bLinkMap[l.id] && JSON.stringify(bLinkMap[l.id]) !== JSON.stringify(l));
+          if (addedLinks.length)   stepChanges.push({ type: 'links_added',   links: addedLinks.map(l   => ({ label: l.label, url: l.url })) });
+          if (removedLinks.length) stepChanges.push({ type: 'links_removed', links: removedLinks.map(l => ({ label: l.label, url: l.url })) });
+          if (changedLinks.length) stepChanges.push({ type: 'links_changed', links: changedLinks.map(l => ({ label: l.label, url: l.url })) });
+
+          if (JSON.stringify(bs.subSteps || []) !== JSON.stringify(as_.subSteps || []))
+            stepChanges.push({ type: 'substeps' });
+
           edited.push({ title: bs.title || 'Etapa', changes: stepChanges });
         }
       }
