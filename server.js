@@ -25,6 +25,56 @@ const mimeTypes = {
 
 const RESERVED = new Set(['api', 'components', 'pages', 'backup', 'published', 'data', 'login']);
 
+// Merge três-vias: combina alterações do cliente com o estado atual do banco,
+// preservando mudanças de outros usuários que o cliente não viu.
+function mergeDoc(base, client, server) {
+  // Nós: merge por ID
+  const baseMap   = Object.fromEntries((base.nodes   || []).map(n => [n.id, n]));
+  const clientMap = Object.fromEntries((client.nodes || []).map(n => [n.id, n]));
+  const serverMap = Object.fromEntries((server.nodes || []).map(n => [n.id, n]));
+  const allIds = new Set([...Object.keys(baseMap), ...Object.keys(clientMap), ...Object.keys(serverMap)]);
+  const mergedNodes = [];
+  for (const id of allIds) {
+    const b = baseMap[id], c = clientMap[id], s = serverMap[id];
+    if (!b) {
+      if (c) mergedNodes.push(c);       // cliente adicionou
+      else if (s) mergedNodes.push(s);  // servidor adicionou (cliente não viu)
+    } else {
+      if (!c) continue;                  // cliente deletou → respeita deleção
+      if (!s) { mergedNodes.push(c); continue; } // servidor deletou mas cliente editou → mantém cliente
+      const cChanged = JSON.stringify(c) !== JSON.stringify(b);
+      const sChanged = JSON.stringify(s) !== JSON.stringify(b);
+      // Só cliente mudou → usa cliente; só servidor mudou → usa servidor; ambos → cliente vence
+      mergedNodes.push(!cChanged && sChanged ? s : c);
+    }
+  }
+
+  // Arestas: mantém as do cliente + adiciona as do servidor que o cliente nunca viu
+  const edgeFp = e => `${e.from}|${e.to}|${e.fromSide||'r'}|${e.toSide||'l'}`;
+  const baseEdgeFps   = new Set((base.edges   || []).map(edgeFp));
+  const clientEdgeFps = new Set((client.edges || []).map(edgeFp));
+  const mergedEdges   = [...(client.edges || [])];
+  for (const edge of (server.edges || [])) {
+    if (!baseEdgeFps.has(edgeFp(edge)) && !clientEdgeFps.has(edgeFp(edge)))
+      mergedEdges.push(edge);
+  }
+
+  // Subflows: merge por chave (nodeId)
+  const baseSubflows   = base.subflows   || {};
+  const clientSubflows = client.subflows || {};
+  const serverSubflows = server.subflows || {};
+  const mergedSubflows = { ...serverSubflows };
+  for (const key of Object.keys(baseSubflows)) {
+    if (!(key in clientSubflows)) delete mergedSubflows[key]; // cliente deletou
+  }
+  for (const [key, val] of Object.entries(clientSubflows)) {
+    mergedSubflows[key] = val; // cliente adicionou/editou
+  }
+
+  const { _baseNodes, _baseEdges, _baseSubflows, ...clientClean } = client;
+  return { ...server, ...clientClean, nodes: mergedNodes, edges: mergedEdges, subflows: mergedSubflows };
+}
+
 // SSE: clientes aguardando atualizações de fluxos publicados
 const sseClients = new Map();
 
@@ -429,8 +479,15 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
     try {
       const body = await readBody(req);
-      await db.saveLiveDoc(body);
       const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
+      if (body._baseNodes != null) {
+        // Merge três-vias: preserva alterações de outros usuários feitas desde o último load
+        const serverDoc = await db.loadLiveDoc();
+        const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
+        await db.saveLiveDoc(serverDoc ? mergeDoc(base, body, serverDoc) : body);
+      } else {
+        await db.saveLiveDoc(body);
+      }
       notifyMainClients('doc_updated', { by: effectiveBy });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }

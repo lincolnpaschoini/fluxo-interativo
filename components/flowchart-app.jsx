@@ -1339,7 +1339,11 @@ function App() {
     setQuickSaveStatus('saving');
     let subflows = {};
     try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
-    const docPayload = { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows };
+    const base = baseDocRef.current;
+    const docPayload = {
+      nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows,
+      _baseNodes: base ? base.nodes : null, _baseEdges: base ? base.edges : null, _baseSubflows: base ? base.subflows : null,
+    };
     try {
       // 1. Salva no backup (sobrescreve o existente ou cria novo)
       const listRes = await fetch('/api/backup/list');
@@ -1358,6 +1362,7 @@ function App() {
       if (syncRes.status === 401) { window.location.href = '/login'; return; }
       if (!syncRes.ok) throw new Error('Falha ao sincronizar');
 
+      baseDocRef.current = { nodes, edges, subflows };
       setQuickSaveStatus('saved');
     } catch (e) {
       console.error('quickSave erro:', e.message);
@@ -1416,6 +1421,10 @@ function App() {
   const flowTitleSizeRef  = React.useRef(flowTitleSize);
   const legendRef         = React.useRef(legend);
   const legendConfigRef   = React.useRef(legendConfig);
+  // Base: último estado confirmado do servidor — usado para merge três-vias no sync
+  const baseDocRef = React.useRef(serverDoc ? {
+    nodes: serverDoc.nodes || [], edges: serverDoc.edges || [], subflows: serverDoc.subflows || {},
+  } : null);
   React.useEffect(() => { nodesRef.current          = nodes;         }, [nodes]);
   React.useEffect(() => { edgesRef.current          = edges;         }, [edges]);
   React.useEffect(() => { docTitleRef.current       = docTitle;      }, [docTitle]);
@@ -1430,6 +1439,7 @@ function App() {
   const buildDocPayload = () => {
     let subflows = {};
     try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(e) {}
+    const base = baseDocRef.current;
     return {
       nodes: nodesRef.current, edges: edgesRef.current,
       title: docTitleRef.current,
@@ -1437,6 +1447,10 @@ function App() {
       flowTitle: flowTitleRef.current, flowLogo: flowLogoRef.current,
       flowTitleFont: flowTitleFontRef.current, flowTitleSize: flowTitleSizeRef.current,
       legend: legendRef.current, legendConfig: legendConfigRef.current,
+      // Base para merge três-vias no servidor
+      _baseNodes:    base ? base.nodes    : null,
+      _baseEdges:    base ? base.edges    : null,
+      _baseSubflows: base ? base.subflows : null,
     };
   };
 
@@ -1446,10 +1460,15 @@ function App() {
     clearTimeout(syncTimer.current);
     const payload = JSON.stringify(buildDocPayload());
     if (beacon && navigator.sendBeacon) {
-      // sendBeacon garante entrega mesmo quando a página está fechando
       navigator.sendBeacon('/api/doc/sync', new Blob([payload], { type: 'application/json' }));
     } else {
-      fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {});
+      fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
+        .then(() => {
+          let subflows = {};
+          try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(_) {}
+          baseDocRef.current = { nodes: nodesRef.current, edges: edgesRef.current, subflows };
+        })
+        .catch(() => {});
     }
   };
   const debouncedDocSync = () => {
@@ -1503,6 +1522,10 @@ function App() {
             try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (_) {}
             window.dispatchEvent(new CustomEvent('subflows-updated'));
           }
+          // Atualiza base para o próximo merge três-vias
+          let sf = {};
+          try { sf = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (_) {}
+          baseDocRef.current = { nodes: d.data.nodes || [], edges: d.data.edges || [], subflows: d.data.subflows || sf };
         })
         .catch(() => {});
     };
