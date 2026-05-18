@@ -1294,9 +1294,11 @@ function AuditModal({ onClose }) {
   const [total, setTotal]   = React.useState(0);
   const [loading, setLoading] = React.useState(false);
   const [offset, setOffset] = React.useState(0);
+  const [expandedId, setExpandedId] = React.useState(null);
+  const [clearing, setClearing] = React.useState(false);
   const LIMIT = 50;
 
-  const fetchLogs = (reset = false) => {
+  const fetchLogs = React.useCallback((reset = false) => {
     setLoading(true);
     const off = reset ? 0 : offset;
     const params = new URLSearchParams({ limit: LIMIT, offset: off });
@@ -1314,9 +1316,29 @@ function AuditModal({ onClose }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  };
+  }, [from, to, user, action, offset]);
 
-  React.useEffect(() => { fetchLogs(true); }, []);
+  const fetchLogsRef = React.useRef(fetchLogs);
+  React.useEffect(() => { fetchLogsRef.current = fetchLogs; }, [fetchLogs]);
+
+  // Initial load
+  React.useEffect(() => { fetchLogsRef.current(true); }, []);
+
+  // Real-time: listen to SSE audit_new events
+  React.useEffect(() => {
+    const es = new EventSource('/api/events/__main__');
+    es.addEventListener('audit_new', () => fetchLogsRef.current(true));
+    return () => es.close();
+  }, []);
+
+  const clearHistory = async () => {
+    if (!window.confirm('Limpar todo o histórico de auditoria? Esta ação não pode ser desfeita.')) return;
+    setClearing(true);
+    try {
+      await fetch('/api/audit', { method: 'DELETE' });
+      setLogs([]); setTotal(0); setOffset(0);
+    } finally { setClearing(false); }
+  };
 
   const ACTION_ICONS = {
     node_add: '➕', node_edit: '✏️', node_delete: '🗑️',
@@ -1376,8 +1398,13 @@ function AuditModal({ onClose }) {
       <div className="sf-drill-bar">
         <button className="sf-back" onClick={onClose}>← Fechar</button>
         <span style={{ fontWeight: 700, fontSize: 15 }}>Auditoria</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b6b66' }}>
-          {total > 0 ? `${total.toLocaleString('pt-BR')} registro${total !== 1 ? 's' : ''}` : ''}
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {total > 0 && <span style={{ fontSize: 12, color: '#6b6b66' }}>{total.toLocaleString('pt-BR')} registro{total !== 1 ? 's' : ''}</span>}
+          <button onClick={clearHistory} disabled={clearing || total === 0}
+                  style={{ fontSize: 12, padding: '4px 10px', background: 'transparent', border: '1px solid rgba(165,40,40,0.35)',
+                           borderRadius: 6, color: '#a52828', cursor: 'pointer', opacity: (clearing || total === 0) ? 0.5 : 1 }}>
+            {clearing ? 'Limpando…' : '🗑 Limpar histórico'}
+          </button>
         </span>
       </div>
 
@@ -1430,20 +1457,79 @@ function AuditModal({ onClose }) {
               {group.label}
             </div>
             {group.items.map(log => {
-              const icon  = ACTION_ICONS[log.action]  || '📝';
-              const color = ACTION_COLORS[log.action] || '#6b6b66';
-              const time  = new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              const icon     = ACTION_ICONS[log.action]  || '📝';
+              const time     = new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              const meta     = log.metadata;
+              const isOpen   = expandedId === log.id;
+              const hasDetail = meta && (
+                (meta.changes && meta.changes.length > 0) ||
+                (meta.added && meta.added.length > 0) ||
+                (meta.removed && meta.removed.length > 0) ||
+                (meta.edited && meta.edited.length > 0) ||
+                meta.label || meta.stepCount != null || meta.color
+              );
               return (
-                <div key={log.id}
-                     style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', transition: 'background 0.1s', cursor: 'default' }}
-                     onMouseEnter={e => e.currentTarget.style.background = '#f9f9f7'}
-                     onMouseLeave={e => e.currentTarget.style.background = ''}>
-                  <span style={{ fontSize: 17, lineHeight: 1.35, flexShrink: 0, width: 24, textAlign: 'center' }}>{icon}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: '#1d1d1b', lineHeight: 1.45 }}>{log.description}</div>
-                    <div style={{ fontSize: 11.5, color: '#6b6b66', marginTop: 2 }}>{log.actor_email}</div>
+                <div key={log.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                  <div
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px',
+                             transition: 'background 0.1s', cursor: hasDetail ? 'pointer' : 'default' }}
+                    onClick={() => hasDetail && setExpandedId(isOpen ? null : log.id)}
+                    onMouseEnter={e => { if (hasDetail) e.currentTarget.style.background = '#f5f4f0'; }}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <span style={{ fontSize: 17, lineHeight: 1.35, flexShrink: 0, width: 24, textAlign: 'center' }}>{icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: '#1d1d1b', lineHeight: 1.45 }}>{log.description}</div>
+                      <div style={{ fontSize: 11.5, color: '#6b6b66', marginTop: 2 }}>{log.actor_email}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 11.5, color: '#9a9a95', fontVariantNumeric: 'tabular-nums' }}>{time}</span>
+                      {hasDetail && <span style={{ fontSize: 10, color: '#aaa' }}>{isOpen ? '▲' : '▼'}</span>}
+                    </div>
                   </div>
-                  <span style={{ fontSize: 11.5, color: '#9a9a95', flexShrink: 0, fontVariantNumeric: 'tabular-nums', paddingTop: 1 }}>{time}</span>
+                  {isOpen && hasDetail && (
+                    <div style={{ margin: '0 20px 10px 56px', background: '#f7f6f2', borderRadius: 8,
+                                  padding: '10px 14px', fontSize: 12.5, color: '#3a3a35', lineHeight: 1.6 }}>
+                      {/* node_edit: list changed fields */}
+                      {meta.changes && meta.changes.map((ch, i) => (
+                        <div key={i} style={{ marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600 }}>{ch.label}:</span>{' '}
+                          {ch.field === 'color' ? (
+                            <>
+                              <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3,
+                                             background: ch.before, border: '1px solid rgba(0,0,0,0.15)', verticalAlign: 'middle', marginRight: 3 }} />
+                              <span style={{ color: '#888' }}>{ch.before}</span>
+                              {' → '}
+                              <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3,
+                                             background: ch.after, border: '1px solid rgba(0,0,0,0.15)', verticalAlign: 'middle', marginRight: 3 }} />
+                              <span style={{ color: '#888' }}>{ch.after}</span>
+                            </>
+                          ) : ch.field === 'allowedUsers' ? (
+                            <span style={{ color: '#555' }}>
+                              {(ch.before || []).join(', ') || '—'} → {(ch.after || []).join(', ') || '—'}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#555' }}>
+                              {String(ch.before ?? '—').slice(0, 80)} → {String(ch.after ?? '—').slice(0, 80)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {/* subflow_edit: added/removed/edited items */}
+                      {meta.added   && meta.added.length   > 0 && <div><span style={{ color: '#3d8c4d', fontWeight: 600 }}>+ Adicionados:</span> {meta.added.filter(Boolean).join(', ') || `${meta.added.length} item(s)`}</div>}
+                      {meta.removed && meta.removed.length > 0 && <div><span style={{ color: '#a52828', fontWeight: 600 }}>− Removidos:</span> {meta.removed.filter(Boolean).join(', ') || `${meta.removed.length} item(s)`}</div>}
+                      {meta.edited  && meta.edited.length  > 0 && <div><span style={{ color: '#1f5dbb', fontWeight: 600 }}>✎ Editados:</span> {meta.edited.filter(Boolean).join(', ') || `${meta.edited.length} item(s)`}</div>}
+                      {/* node_add/delete or subflow_add/delete: summary props */}
+                      {meta.label && !meta.changes && <div><span style={{ fontWeight: 600 }}>Título:</span> {meta.label}</div>}
+                      {meta.color && !meta.changes && (
+                        <div><span style={{ fontWeight: 600 }}>Cor:</span>{' '}
+                          <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3,
+                                         background: meta.color, border: '1px solid rgba(0,0,0,0.15)', verticalAlign: 'middle', marginRight: 3 }} />
+                          {meta.color}
+                        </div>
+                      )}
+                      {meta.stepCount != null && <div><span style={{ fontWeight: 600 }}>Etapas:</span> {meta.stepCount}</div>}
+                    </div>
+                  )}
                 </div>
               );
             })}

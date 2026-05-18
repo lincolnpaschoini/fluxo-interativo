@@ -76,6 +76,9 @@ function mergeDoc(base, client, server) {
 }
 
 // Detecta diferenças entre dois estados do documento e retorna entradas de auditoria
+const NODE_FIELD_LABELS = { label: 'Título', color: 'Cor', shape: 'Formato', w: 'Largura', h: 'Altura', allowedUsers: 'Permissões' };
+const NODE_SKIP_FIELDS  = new Set(['x', 'y', 'id']);
+
 function diffDocs(before, after) {
   const entries = [];
   const bNodes = Object.fromEntries((before.nodes || []).map(n => [n.id, n]));
@@ -83,10 +86,22 @@ function diffDocs(before, after) {
   for (const id of new Set([...Object.keys(bNodes), ...Object.keys(aNodes)])) {
     const b = bNodes[id], a = aNodes[id];
     const label = `"${((a || b).label || id).replace(/\n/g, ' ').slice(0, 60)}"`;
-    if (!b && a)  entries.push({ action: 'node_add',    target: id, description: `Nó adicionado: ${label}` });
-    else if (b && !a) entries.push({ action: 'node_delete', target: id, description: `Nó removido: ${label}` });
-    else if (b && a && JSON.stringify(b) !== JSON.stringify(a))
-      entries.push({ action: 'node_edit', target: id, description: `Nó editado: ${label}` });
+    if (!b && a) {
+      entries.push({ action: 'node_add', target: id, description: `Nó adicionado: ${label}`,
+        metadata: { label: a.label, color: a.color } });
+    } else if (b && !a) {
+      entries.push({ action: 'node_delete', target: id, description: `Nó removido: ${label}`,
+        metadata: { label: b.label, color: b.color } });
+    } else if (b && a && JSON.stringify(b) !== JSON.stringify(a)) {
+      const changes = [];
+      for (const key of new Set([...Object.keys(b), ...Object.keys(a)])) {
+        if (NODE_SKIP_FIELDS.has(key)) continue;
+        if (JSON.stringify(b[key]) !== JSON.stringify(a[key]))
+          changes.push({ field: key, label: NODE_FIELD_LABELS[key] || key, before: b[key], after: a[key] });
+      }
+      entries.push({ action: 'node_edit', target: id, description: `Nó editado: ${label}`,
+        metadata: { changes } });
+    }
   }
   const edgeFp  = e => `${e.from}|${e.to}|${e.fromSide||'r'}|${e.toSide||'l'}`;
   const bEdgeFps = new Set((before.edges || []).map(edgeFp));
@@ -110,10 +125,27 @@ function diffDocs(before, after) {
   const bSf = before.subflows || {}, aSf = after.subflows || {};
   for (const key of new Set([...Object.keys(bSf), ...Object.keys(aSf)])) {
     const nodeLabel = ((aNodes[key] || bNodes[key] || {}).label || key).slice(0, 60);
-    if (!bSf[key] && aSf[key])  entries.push({ action: 'subflow_add',    target: key, description: `Sub-fluxo criado: "${nodeLabel}"` });
-    else if (bSf[key] && !aSf[key]) entries.push({ action: 'subflow_delete', target: key, description: `Sub-fluxo removido: "${nodeLabel}"` });
-    else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key]))
-      entries.push({ action: 'subflow_edit', target: key, description: `Sub-fluxo editado: "${nodeLabel}"` });
+    if (!bSf[key] && aSf[key]) {
+      entries.push({ action: 'subflow_add', target: key, description: `Sub-fluxo criado: "${nodeLabel}"`,
+        metadata: { stepCount: (aSf[key]?.items || []).length } });
+    } else if (bSf[key] && !aSf[key]) {
+      entries.push({ action: 'subflow_delete', target: key, description: `Sub-fluxo removido: "${nodeLabel}"`,
+        metadata: { stepCount: (bSf[key]?.items || []).length } });
+    } else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key])) {
+      const bItems = bSf[key]?.items || [];
+      const aItems = aSf[key]?.items || [];
+      const bMap = Object.fromEntries(bItems.map((it, i) => [it.id || `_${i}`, it]));
+      const aMap = Object.fromEntries(aItems.map((it, i) => [it.id || `_${i}`, it]));
+      const added = [], removed = [], edited = [];
+      for (const k of new Set([...Object.keys(bMap), ...Object.keys(aMap)])) {
+        const bi = bMap[k], ai = aMap[k];
+        if (!bi && ai)       added.push(ai.title || '');
+        else if (bi && !ai)  removed.push(bi.title || '');
+        else if (bi && ai && JSON.stringify(bi) !== JSON.stringify(ai)) edited.push(bi.title || '');
+      }
+      entries.push({ action: 'subflow_edit', target: key, description: `Sub-fluxo editado: "${nodeLabel}"`,
+        metadata: { added, removed, edited } });
+    }
   }
   return entries;
 }
@@ -298,6 +330,7 @@ const server = http.createServer(async (req, res) => {
       const token      = crypto.randomBytes(24).toString('hex');
       await db.setSession(token, { email, isAdmin, name: userRecord.name });
       db.logAudit(email, 'login', `Login via e-mail`);
+      notifyMainClients('audit_new', null);
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -377,6 +410,7 @@ const server = http.createServer(async (req, res) => {
       const token   = crypto.randomBytes(24).toString('hex');
       await db.setSession(token, { email, isAdmin, name });
       db.logAudit(email, 'login', `Login via Microsoft OAuth`);
+      notifyMainClients('audit_new', null);
 
       res.writeHead(302, {
         Location: '/',
@@ -438,7 +472,7 @@ const server = http.createServer(async (req, res) => {
       for (const email of prev.admins) {
         if (!body.admins.includes(email)) auditEntries.push({ action: 'user_admin_revoke', target: email, description: `Admin revogado: ${email}` });
       }
-      if (auditEntries.length > 0) db.batchLogAudit(session.email, auditEntries);
+      if (auditEntries.length > 0) { db.batchLogAudit(session.email, auditEntries); notifyMainClients('audit_new', null); }
       notifyMainClients('users_updated', { admins: body.admins, users: body.users });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -468,6 +502,7 @@ const server = http.createServer(async (req, res) => {
       const result = await db.createAccessRequest(nodeId, nodeTitle || '', actingEmail, actingName);
       if (!result.alreadyExists) {
         db.logAudit(actingEmail, 'access_request', `Acesso solicitado: "${nodeTitle || nodeId}"`, nodeId);
+        notifyMainClients('audit_new', null);
         notifyMainClients('access_request_new', {
           id: result.id, nodeId, nodeTitle, requesterEmail: actingEmail, requesterName: actingName,
         });
@@ -517,6 +552,7 @@ const server = http.createServer(async (req, res) => {
       const actionKey = status === 'approved' ? 'access_approved' : 'access_denied';
       const actionLabel = status === 'approved' ? 'Acesso aprovado' : 'Acesso negado';
       db.logAudit(session.email, actionKey, `${actionLabel} para ${req_.requester_email}: "${req_.node_title || req_.node_id}"`, req_.node_id);
+      notifyMainClients('audit_new', null);
       notifyMainClients('access_request_resolved', {
         nodeId: req_.node_id, status, requesterEmail: req_.requester_email,
       });
@@ -555,7 +591,7 @@ const server = http.createServer(async (req, res) => {
         // Audita apenas o que o cliente especificamente alterou (base → client)
         const clientState = { nodes: body.nodes, edges: body.edges, subflows: body.subflows || {} };
         const changes = diffDocs(base, clientState);
-        if (changes.length > 0) db.batchLogAudit(effectiveBy, changes);
+        if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
       } else {
         await db.saveLiveDoc(body);
       }
@@ -706,6 +742,7 @@ const server = http.createServer(async (req, res) => {
       if (!slug) { sendJson(res, 400, { ok: false, error: 'Slug inválido' }); return; }
       await db.savePublished(slug, body.data);
       db.logAudit(session.email, 'publish', `Fluxo publicado com slug: "${slug}"`, slug);
+      notifyMainClients('audit_new', null);
       notifySseClients(slug);
       sendJson(res, 200, { ok: true, slug });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -728,6 +765,14 @@ const server = http.createServer(async (req, res) => {
       const result = await db.getAuditLogs({ from, to, user, action, limit, offset });
       sendJson(res, 200, { ok: true, ...result });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  if (req.url === '/api/audit' && req.method === 'DELETE') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    const result = await db.clearAuditLogs();
+    sendJson(res, 200, result);
     return;
   }
 

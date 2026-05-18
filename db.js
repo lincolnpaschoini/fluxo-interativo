@@ -75,11 +75,14 @@ async function init() {
         action      TEXT NOT NULL,
         target      TEXT,
         description TEXT NOT NULL,
+        metadata    JSONB,
         created_at  TIMESTAMPTZ DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs (created_at DESC);
       CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs (actor_email);
     `);
+    // Migration: add metadata column to existing tables
+    await client.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSONB`);
 
     // Remover sessões com mais de 1 ano
     await client.query(`DELETE FROM sessions WHERE created_at < NOW() - INTERVAL '1 year'`);
@@ -410,11 +413,11 @@ async function loadBackup(filename) {
 
 // ── Auditoria ─────────────────────────────────────────────────────────────────
 
-async function logAudit(actorEmail, action, description, target = null) {
+async function logAudit(actorEmail, action, description, target = null, metadata = null) {
   try {
     await pool.query(
-      'INSERT INTO audit_logs (actor_email, action, description, target) VALUES ($1, $2, $3, $4)',
-      [actorEmail, action, description, target]
+      'INSERT INTO audit_logs (actor_email, action, description, target, metadata) VALUES ($1, $2, $3, $4, $5)',
+      [actorEmail, action, description, target, metadata ? JSON.stringify(metadata) : null]
     );
   } catch (e) { console.error('logAudit error:', e.message); }
 }
@@ -424,8 +427,8 @@ async function batchLogAudit(actorEmail, entries) {
   try {
     for (const e of entries) {
       await pool.query(
-        'INSERT INTO audit_logs (actor_email, action, description, target) VALUES ($1, $2, $3, $4)',
-        [actorEmail, e.action, e.description, e.target || null]
+        'INSERT INTO audit_logs (actor_email, action, description, target, metadata) VALUES ($1, $2, $3, $4, $5)',
+        [actorEmail, e.action, e.description, e.target || null, e.metadata ? JSON.stringify(e.metadata) : null]
       );
     }
   } catch (e) { console.error('batchLogAudit error:', e.message); }
@@ -443,7 +446,7 @@ async function getAuditLogs({ from, to, user, action, limit = 100, offset = 0 } 
     const lim = Math.min(Number(limit) || 100, 500);
     const off = Number(offset) || 0;
     const { rows } = await pool.query(
-      `SELECT id, actor_email, action, target, description, created_at
+      `SELECT id, actor_email, action, target, description, metadata, created_at
        FROM audit_logs ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
       [...params, lim, off]
     );
@@ -452,6 +455,13 @@ async function getAuditLogs({ from, to, user, action, limit = 100, offset = 0 } 
     );
     return { logs: rows, total: parseInt(count, 10) };
   } catch (e) { console.error('getAuditLogs error:', e.message); return { logs: [], total: 0 }; }
+}
+
+async function clearAuditLogs() {
+  try {
+    await pool.query('TRUNCATE TABLE audit_logs RESTART IDENTITY');
+    return { ok: true };
+  } catch (e) { console.error('clearAuditLogs error:', e.message); return { ok: false, error: e.message }; }
 }
 
 module.exports = {
@@ -463,5 +473,5 @@ module.exports = {
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
-  logAudit, batchLogAudit, getAuditLogs,
+  logAudit, batchLogAudit, getAuditLogs, clearAuditLogs,
 };
