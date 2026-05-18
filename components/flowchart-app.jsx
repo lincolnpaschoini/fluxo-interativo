@@ -1515,18 +1515,75 @@ function AuditModal({ onClose }) {
                         </div>
                       ))}
                       {/* subflow_edit: added/removed/edited steps */}
-                      {meta.added   && meta.added.length > 0 && (
-                        <div style={{ marginBottom: 4 }}>
-                          <span style={{ color: '#3d8c4d', fontWeight: 600 }}>+ Adicionado{meta.added.length > 1 ? 's' : ''}:</span>{' '}
-                          {meta.added.join(', ')}
-                        </div>
-                      )}
-                      {meta.removed && meta.removed.length > 0 && (
-                        <div style={{ marginBottom: 4 }}>
-                          <span style={{ color: '#a52828', fontWeight: 600 }}>− Removido{meta.removed.length > 1 ? 's' : ''}:</span>{' '}
-                          {meta.removed.join(', ')}
-                        </div>
-                      )}
+                      {meta.added && meta.added.length > 0 && meta.added.map((item, i) => {
+                        const isStr = typeof item === 'string';
+                        const title = isStr ? item : item.title;
+                        return (
+                          <div key={i} style={{ marginBottom: 6 }}>
+                            <div style={{ fontWeight: 600, color: '#3d8c4d' }}>+ {title}</div>
+                            {!isStr && item.desc     && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição preenchida</div>}
+                            {!isStr && item.owner    && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Responsável: "{item.owner}"</div>}
+                            {!isStr && item.duration && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Duração: "{item.duration}"</div>}
+                            {!isStr && item.images && item.images.length > 0 && (
+                              <div style={{ paddingLeft: 12, marginTop: 3 }}>
+                                <div style={{ fontSize: 12, color: '#3d8c4d' }}>· +{item.images.length} imagem(ns)</div>
+                                {item.images.some(img => img.url) && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 10, marginTop: 5 }}>
+                                    {item.images.map((img, k) => img.url
+                                      ? <img key={k} src={img.url} alt={img.caption || ''} title={img.caption || ''}
+                                             style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 5,
+                                                      border: '2px solid #3d8c4d', cursor: 'pointer' }}
+                                             onClick={() => window.open(img.url, '_blank')} />
+                                      : null)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {!isStr && item.links && item.links.length > 0 && (
+                              <div style={{ paddingLeft: 12, marginTop: 3 }}>
+                                <div style={{ fontSize: 12, color: '#3d8c4d' }}>· +{item.links.length} link(s)</div>
+                                {item.links.map((l, k) => (
+                                  <div key={k} style={{ paddingLeft: 10, fontSize: 12 }}>
+                                    {l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1f5dbb', wordBreak: 'break-all' }}>{l.label ? `${l.label} — ${l.url}` : l.url}</a> : <span style={{ color: '#888' }}>{l.label || '—'}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {meta.removed && meta.removed.length > 0 && meta.removed.map((item, i) => {
+                        const isStr = typeof item === 'string';
+                        const title = isStr ? item : item.title;
+                        return (
+                          <div key={i} style={{ marginBottom: 6 }}>
+                            <div style={{ fontWeight: 600, color: '#a52828' }}>− {title}</div>
+                            {!isStr && item.images && item.images.length > 0 && (
+                              <div style={{ paddingLeft: 12, marginTop: 3 }}>
+                                <div style={{ fontSize: 12, color: '#a52828' }}>· Tinha {item.images.length} imagem(ns)</div>
+                                {item.images.some(img => img.url) && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 10, marginTop: 5 }}>
+                                    {item.images.map((img, k) => img.url
+                                      ? <img key={k} src={img.url} alt={img.caption || ''} title={img.caption || ''}
+                                             style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 5,
+                                                      border: '2px solid #a52828', cursor: 'pointer', opacity: 0.7 }}
+                                             onClick={() => window.open(img.url, '_blank')} />
+                                      : null)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {!isStr && item.links && item.links.length > 0 && (
+                              <div style={{ paddingLeft: 12, marginTop: 3 }}>
+                                <div style={{ fontSize: 12, color: '#a52828' }}>· Tinha {item.links.length} link(s)</div>
+                                {item.links.map((l, k) => (
+                                  <div key={k} style={{ paddingLeft: 10, fontSize: 12, color: '#888' }}>{l.label || l.url || '—'}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                       {meta.edited  && meta.edited.length > 0 && meta.edited.map((e, i) => (
                         <div key={i} style={{ marginBottom: 8 }}>
                           <div style={{ fontWeight: 600, color: '#1f5dbb' }}>✎ {typeof e === 'string' ? e : e.title}</div>

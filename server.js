@@ -140,9 +140,20 @@ function diffDocs(before, after) {
       for (const k of new Set([...Object.keys(bMap), ...Object.keys(aMap)])) {
         const bs = bMap[k], as_ = aMap[k];
         if (!bs && as_) {
-          added.push(as_.title || 'Nova etapa');
+          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
+          const detail = { title: as_.title || 'Nova etapa' };
+          if (as_.desc)                    detail.desc = true;
+          if ((as_.owner || ''))           detail.owner = as_.owner || '';
+          if ((as_.duration || ''))        detail.duration = as_.duration || '';
+          if ((as_.images || []).length)   detail.images = (as_.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
+          if ((as_.links  || []).length)   detail.links  = (as_.links  || []).map(l => ({ label: l.label, url: l.url }));
+          added.push(detail);
         } else if (bs && !as_) {
-          removed.push(bs.title || 'Etapa');
+          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
+          const detail = { title: bs.title || 'Etapa' };
+          if ((bs.images || []).length) detail.images = (bs.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
+          if ((bs.links  || []).length) detail.links  = (bs.links  || []).map(l => ({ label: l.label, url: l.url }));
+          removed.push(detail);
         } else if (bs && as_ && JSON.stringify(bs) !== JSON.stringify(as_)) {
           const stepChanges = [];
           if (bs.title !== as_.title)
