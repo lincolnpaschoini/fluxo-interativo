@@ -132,16 +132,30 @@ function diffDocs(before, after) {
       entries.push({ action: 'subflow_delete', target: key, description: `Sub-fluxo removido: "${nodeLabel}"`,
         metadata: { stepCount: (bSf[key]?.items || []).length } });
     } else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key])) {
-      const bItems = bSf[key]?.items || [];
-      const aItems = aSf[key]?.items || [];
-      const bMap = Object.fromEntries(bItems.map((it, i) => [it.id || `_${i}`, it]));
-      const aMap = Object.fromEntries(aItems.map((it, i) => [it.id || `_${i}`, it]));
+      const bSteps = bSf[key]?.steps || [];
+      const aSteps = aSf[key]?.steps || [];
+      const bMap = Object.fromEntries(bSteps.map((s, i) => [s.id || `_${i}`, s]));
+      const aMap = Object.fromEntries(aSteps.map((s, i) => [s.id || `_${i}`, s]));
       const added = [], removed = [], edited = [];
       for (const k of new Set([...Object.keys(bMap), ...Object.keys(aMap)])) {
-        const bi = bMap[k], ai = aMap[k];
-        if (!bi && ai)       added.push(ai.title || '');
-        else if (bi && !ai)  removed.push(bi.title || '');
-        else if (bi && ai && JSON.stringify(bi) !== JSON.stringify(ai)) edited.push(bi.title || '');
+        const bs = bMap[k], as_ = aMap[k];
+        if (!bs && as_) {
+          added.push(as_.title || 'Nova etapa');
+        } else if (bs && !as_) {
+          removed.push(bs.title || 'Etapa');
+        } else if (bs && as_ && JSON.stringify(bs) !== JSON.stringify(as_)) {
+          const stepChanges = [];
+          if (bs.title !== as_.title) stepChanges.push(`Título: "${bs.title}" → "${as_.title}"`);
+          if (bs.desc  !== as_.desc)  stepChanges.push('Descrição alterada');
+          if (bs.owner !== as_.owner) stepChanges.push(`Responsável: "${bs.owner || '—'}" → "${as_.owner || '—'}"`);
+          if (bs.duration !== as_.duration) stepChanges.push(`Duração: "${bs.duration || '—'}" → "${as_.duration || '—'}"`);
+          if (bs.color !== as_.color) stepChanges.push(`Cor: ${bs.color} → ${as_.color}`);
+          const bImgs = (bs.images || []).length, aImgs = (as_.images || []).length;
+          if (bImgs !== aImgs) stepChanges.push(aImgs > bImgs ? `+${aImgs - bImgs} imagem(ns)` : `-${bImgs - aImgs} imagem(ns)`);
+          if (JSON.stringify(bs.links || []) !== JSON.stringify(as_.links || [])) stepChanges.push('Links alterados');
+          if (JSON.stringify(bs.subSteps || []) !== JSON.stringify(as_.subSteps || [])) stepChanges.push('Sub-etapas alteradas');
+          edited.push({ title: bs.title || 'Etapa', changes: stepChanges });
+        }
       }
       entries.push({ action: 'subflow_edit', target: key, description: `Sub-fluxo editado: "${nodeLabel}"`,
         metadata: { added, removed, edited } });

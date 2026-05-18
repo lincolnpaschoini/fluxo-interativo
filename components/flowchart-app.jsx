@@ -1462,11 +1462,11 @@ function AuditModal({ onClose }) {
               const meta     = log.metadata;
               const isOpen   = expandedId === log.id;
               const hasDetail = meta && (
-                (meta.changes && meta.changes.length > 0) ||
-                (meta.added && meta.added.length > 0) ||
-                (meta.removed && meta.removed.length > 0) ||
-                (meta.edited && meta.edited.length > 0) ||
-                meta.label || meta.stepCount != null || meta.color
+                (meta.changes  && meta.changes.length  > 0) ||
+                (meta.added    && meta.added.length    > 0) ||
+                (meta.removed  && meta.removed.length  > 0) ||
+                (meta.edited   && meta.edited.length   > 0) ||
+                meta.stepCount != null || meta.label || meta.color
               );
               return (
                 <div key={log.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
@@ -1514,10 +1514,27 @@ function AuditModal({ onClose }) {
                           )}
                         </div>
                       ))}
-                      {/* subflow_edit: added/removed/edited items */}
-                      {meta.added   && meta.added.length   > 0 && <div><span style={{ color: '#3d8c4d', fontWeight: 600 }}>+ Adicionados:</span> {meta.added.filter(Boolean).join(', ') || `${meta.added.length} item(s)`}</div>}
-                      {meta.removed && meta.removed.length > 0 && <div><span style={{ color: '#a52828', fontWeight: 600 }}>− Removidos:</span> {meta.removed.filter(Boolean).join(', ') || `${meta.removed.length} item(s)`}</div>}
-                      {meta.edited  && meta.edited.length  > 0 && <div><span style={{ color: '#1f5dbb', fontWeight: 600 }}>✎ Editados:</span> {meta.edited.filter(Boolean).join(', ') || `${meta.edited.length} item(s)`}</div>}
+                      {/* subflow_edit: added/removed/edited steps */}
+                      {meta.added   && meta.added.length > 0 && (
+                        <div style={{ marginBottom: 4 }}>
+                          <span style={{ color: '#3d8c4d', fontWeight: 600 }}>+ Adicionado{meta.added.length > 1 ? 's' : ''}:</span>{' '}
+                          {meta.added.join(', ')}
+                        </div>
+                      )}
+                      {meta.removed && meta.removed.length > 0 && (
+                        <div style={{ marginBottom: 4 }}>
+                          <span style={{ color: '#a52828', fontWeight: 600 }}>− Removido{meta.removed.length > 1 ? 's' : ''}:</span>{' '}
+                          {meta.removed.join(', ')}
+                        </div>
+                      )}
+                      {meta.edited  && meta.edited.length > 0 && meta.edited.map((e, i) => (
+                        <div key={i} style={{ marginBottom: 6 }}>
+                          <div style={{ fontWeight: 600, color: '#1f5dbb' }}>✎ {typeof e === 'string' ? e : e.title}</div>
+                          {typeof e !== 'string' && e.changes && e.changes.map((c, j) => (
+                            <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· {c}</div>
+                          ))}
+                        </div>
+                      ))}
                       {/* node_add/delete or subflow_add/delete: summary props */}
                       {meta.label && !meta.changes && <div><span style={{ fontWeight: 600 }}>Título:</span> {meta.label}</div>}
                       {meta.color && !meta.changes && (
