@@ -69,6 +69,16 @@ async function init() {
         resolved_at     TIMESTAMPTZ,
         resolved_by     TEXT
       );
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id          SERIAL PRIMARY KEY,
+        actor_email TEXT NOT NULL,
+        action      TEXT NOT NULL,
+        target      TEXT,
+        description TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs (created_at DESC);
+      CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs (actor_email);
     `);
 
     // Remover sessões com mais de 1 ano
@@ -398,6 +408,52 @@ async function loadBackup(filename) {
   return rows.length ? rows[0].data : null;
 }
 
+// ── Auditoria ─────────────────────────────────────────────────────────────────
+
+async function logAudit(actorEmail, action, description, target = null) {
+  try {
+    await pool.query(
+      'INSERT INTO audit_logs (actor_email, action, description, target) VALUES ($1, $2, $3, $4)',
+      [actorEmail, action, description, target]
+    );
+  } catch (e) { console.error('logAudit error:', e.message); }
+}
+
+async function batchLogAudit(actorEmail, entries) {
+  if (!entries || entries.length === 0) return;
+  try {
+    for (const e of entries) {
+      await pool.query(
+        'INSERT INTO audit_logs (actor_email, action, description, target) VALUES ($1, $2, $3, $4)',
+        [actorEmail, e.action, e.description, e.target || null]
+      );
+    }
+  } catch (e) { console.error('batchLogAudit error:', e.message); }
+}
+
+async function getAuditLogs({ from, to, user, action, limit = 100, offset = 0 } = {}) {
+  try {
+    const conds = [], params = [];
+    let p = 1;
+    if (from)   { conds.push(`created_at >= $${p++}`); params.push(from); }
+    if (to)     { conds.push(`created_at <  $${p++}`); params.push(to); }
+    if (user)   { conds.push(`actor_email ILIKE $${p++}`); params.push(`%${user}%`); }
+    if (action) { conds.push(`action LIKE $${p++}`); params.push(action + '%'); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const lim = Math.min(Number(limit) || 100, 500);
+    const off = Number(offset) || 0;
+    const { rows } = await pool.query(
+      `SELECT id, actor_email, action, target, description, created_at
+       FROM audit_logs ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
+      [...params, lim, off]
+    );
+    const { rows: [{ count }] } = await pool.query(
+      `SELECT COUNT(*) FROM audit_logs ${where}`, params
+    );
+    return { logs: rows, total: parseInt(count, 10) };
+  } catch (e) { console.error('getAuditLogs error:', e.message); return { logs: [], total: 0 }; }
+}
+
 module.exports = {
   init, pool,
   loadUsers, saveUsers,
@@ -407,4 +463,5 @@ module.exports = {
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
+  logAudit, batchLogAudit, getAuditLogs,
 };

@@ -1284,6 +1284,187 @@ function LegendFooter({ legend, legendConfig, editorMode, isAdmin, onChange, onC
   );
 }
 
+// ─── AuditModal
+function AuditModal({ onClose }) {
+  const [from, setFrom]     = React.useState('');
+  const [to, setTo]         = React.useState('');
+  const [user, setUser]     = React.useState('');
+  const [action, setAction] = React.useState('');
+  const [logs, setLogs]     = React.useState([]);
+  const [total, setTotal]   = React.useState(0);
+  const [loading, setLoading] = React.useState(false);
+  const [offset, setOffset] = React.useState(0);
+  const LIMIT = 50;
+
+  const fetchLogs = (reset = false) => {
+    setLoading(true);
+    const off = reset ? 0 : offset;
+    const params = new URLSearchParams({ limit: LIMIT, offset: off });
+    if (from)   params.set('from', new Date(from).toISOString());
+    if (to)     params.set('to', new Date(to + 'T23:59:59').toISOString());
+    if (user)   params.set('user', user.trim());
+    if (action) params.set('action', action);
+    fetch(`/api/audit?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.ok) return;
+        setLogs(reset ? d.logs : prev => [...prev, ...d.logs]);
+        setOffset(reset ? d.logs.length : prev => prev + d.logs.length);
+        setTotal(d.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  React.useEffect(() => { fetchLogs(true); }, []);
+
+  const ACTION_ICONS = {
+    node_add: '➕', node_edit: '✏️', node_delete: '🗑️',
+    edge_add: '↗️', edge_delete: '✂️',
+    subflow_add: '➕', subflow_edit: '✏️', subflow_delete: '🗑️',
+    publish: '🌐', backup_save: '💾',
+    user_add: '👤', user_remove: '🚫', user_admin_grant: '🔑', user_admin_revoke: '🔑',
+    access_request: '🔒', access_approved: '✅', access_denied: '❌',
+    login: '🔐',
+  };
+  const ACTION_COLORS = {
+    node_add: '#3d8c4d', node_edit: '#1f5dbb', node_delete: '#a52828',
+    edge_add: '#3d8c4d', edge_delete: '#a52828',
+    subflow_add: '#3d8c4d', subflow_edit: '#1f5dbb', subflow_delete: '#a52828',
+    publish: '#1f5dbb', backup_save: '#6b6b66',
+    user_add: '#3d8c4d', user_remove: '#a52828', user_admin_grant: '#c97639', user_admin_revoke: '#c97639',
+    access_request: '#caa628', access_approved: '#3d8c4d', access_denied: '#a52828',
+    login: '#6b6b66',
+  };
+  const CATEGORY_LABELS = [
+    ['node',    'Nós'],
+    ['edge',    'Setas'],
+    ['subflow', 'Sub-fluxos'],
+    ['publish', 'Publicações'],
+    ['user',    'Usuários'],
+    ['access',  'Acessos'],
+    ['login',   'Logins'],
+  ];
+
+  const grouped = React.useMemo(() => {
+    const groups = [];
+    let currentDay = null;
+    for (const log of logs) {
+      const d = new Date(log.created_at);
+      const dayKey = d.toDateString();
+      if (dayKey !== currentDay) {
+        currentDay = dayKey;
+        const now = new Date();
+        const isToday     = d.toDateString() === now.toDateString();
+        const isYesterday = d.toDateString() === new Date(now - 86400000).toDateString();
+        const label = isToday ? 'Hoje' : isYesterday ? 'Ontem'
+          : d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+        groups.push({ label, items: [] });
+      }
+      groups[groups.length - 1].items.push(log);
+    }
+    return groups;
+  }, [logs]);
+
+  const S = { // inline styles helpers
+    label: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6b6b66' },
+    input: { border: '1px solid rgba(0,0,0,0.15)', borderRadius: 6, padding: '6px 10px', font: '13px inherit', outline: 'none', background: '#fff' },
+  };
+
+  return (
+    <div className="sf-drill" style={{ zIndex: 1100 }}>
+      <div className="sf-drill-bar">
+        <button className="sf-back" onClick={onClose}>← Fechar</button>
+        <span style={{ fontWeight: 700, fontSize: 15 }}>Auditoria</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#6b6b66' }}>
+          {total > 0 ? `${total.toLocaleString('pt-BR')} registro${total !== 1 ? 's' : ''}` : ''}
+        </span>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.08)', padding: '12px 20px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={S.label}>De</span>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={S.input} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={S.label}>Até</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={S.input} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={S.label}>Usuário</span>
+          <input type="text" value={user} onChange={e => setUser(e.target.value)}
+                 placeholder="parte do e-mail" style={{ ...S.input, width: 180 }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={S.label}>Categoria</span>
+          <select value={action} onChange={e => setAction(e.target.value)} style={{ ...S.input, cursor: 'pointer' }}>
+            <option value="">Todas</option>
+            {CATEGORY_LABELS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </label>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => { setOffset(0); fetchLogs(true); }} disabled={loading}
+                  style={{ height: 34, padding: '0 18px', background: '#1f5dbb', color: '#fff', border: 'none', borderRadius: 6, font: '13px/1 inherit', fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Buscando…' : 'Filtrar'}
+          </button>
+          {(from || to || user || action) && (
+            <button onClick={() => { setFrom(''); setTo(''); setUser(''); setAction(''); setTimeout(() => fetchLogs(true), 0); }}
+                    style={{ height: 34, padding: '0 14px', background: 'transparent', border: '1px solid rgba(0,0,0,0.15)', borderRadius: 6, font: '12px inherit', cursor: 'pointer', color: '#6b6b66' }}>
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lista */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {logs.length === 0 && !loading && (
+          <div style={{ padding: '56px 24px', textAlign: 'center', color: '#6b6b66', fontSize: 14 }}>
+            Nenhum registro encontrado.
+          </div>
+        )}
+        {grouped.map(group => (
+          <div key={group.label}>
+            <div style={{ padding: '14px 20px 6px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#6b6b66', background: '#faf9f5', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+              {group.label}
+            </div>
+            {group.items.map(log => {
+              const icon  = ACTION_ICONS[log.action]  || '📝';
+              const color = ACTION_COLORS[log.action] || '#6b6b66';
+              const time  = new Date(log.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              return (
+                <div key={log.id}
+                     style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px', borderBottom: '1px solid rgba(0,0,0,0.04)', transition: 'background 0.1s', cursor: 'default' }}
+                     onMouseEnter={e => e.currentTarget.style.background = '#f9f9f7'}
+                     onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <span style={{ fontSize: 17, lineHeight: 1.35, flexShrink: 0, width: 24, textAlign: 'center' }}>{icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#1d1d1b', lineHeight: 1.45 }}>{log.description}</div>
+                    <div style={{ fontSize: 11.5, color: '#6b6b66', marginTop: 2 }}>{log.actor_email}</div>
+                  </div>
+                  <span style={{ fontSize: 11.5, color: '#9a9a95', flexShrink: 0, fontVariantNumeric: 'tabular-nums', paddingTop: 1 }}>{time}</span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {loading && (
+          <div style={{ padding: '24px', textAlign: 'center', color: '#6b6b66', fontSize: 13 }}>Carregando…</div>
+        )}
+        {!loading && logs.length > 0 && logs.length < total && (
+          <div style={{ padding: '20px 24px', textAlign: 'center' }}>
+            <button onClick={() => fetchLogs(false)}
+                    style={{ padding: '9px 28px', background: 'transparent', border: '1px solid rgba(0,0,0,0.18)', borderRadius: 7, font: '13px inherit', cursor: 'pointer', color: '#6b6b66' }}>
+              Carregar mais ({(total - logs.length).toLocaleString('pt-BR')} restantes)
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── App
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
@@ -1324,6 +1505,7 @@ function App() {
   const [showRequestsPanel, setShowRequestsPanel] = React.useState(false);
   const [myRequests, setMyRequests] = React.useState({}); // nodeId → status
   const [accessToast, setAccessToast] = React.useState(null); // { status, nodeTitle }
+  const [showAudit, setShowAudit] = React.useState(false);
 
   // Aplica subflows do serverDoc ao localStorage imediatamente no primeiro carregamento
   // para que as imagens apareçam sem esperar o applyLiveDoc assíncrono
@@ -1954,6 +2136,9 @@ function App() {
                         Simular
                       </button>
                     )}
+                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowAudit(true)}>
+                      📋 Auditoria
+                    </button>
                   </>
                 )}
                 <span style={{ fontSize: 12, color: '#6b6b66', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={CURRENT_USER.email}>
@@ -2156,6 +2341,7 @@ function App() {
           onResolve={() => setPendingRequestsCount(n => Math.max(0, n - 1))}
         />
       )}
+      {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {accessToast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
                       zIndex: 9999, background: accessToast.status === 'approved' ? '#3d8c4d' : '#a52828',
