@@ -1296,6 +1296,8 @@ function AuditModal({ onClose }) {
   const [offset, setOffset] = React.useState(0);
   const [expandedId, setExpandedId] = React.useState(null);
   const [clearing, setClearing] = React.useState(false);
+  const [dbStatus, setDbStatus] = React.useState(null);
+  const [loadingStatus, setLoadingStatus] = React.useState(false);
   const LIMIT = 50;
 
   const fetchLogs = React.useCallback((reset = false) => {
@@ -1338,6 +1340,15 @@ function AuditModal({ onClose }) {
       await fetch('/api/audit', { method: 'DELETE' });
       setLogs([]); setTotal(0); setOffset(0);
     } finally { setClearing(false); }
+  };
+
+  const checkDbStatus = async () => {
+    setLoadingStatus(true);
+    try {
+      const r = await fetch('/api/admin/db-status');
+      const d = await r.json();
+      setDbStatus(d);
+    } finally { setLoadingStatus(false); }
   };
 
   const ACTION_ICONS = {
@@ -1398,8 +1409,13 @@ function AuditModal({ onClose }) {
       <div className="sf-drill-bar">
         <button className="sf-back" onClick={onClose}>← Fechar</button>
         <span style={{ fontWeight: 700, fontSize: 15 }}>Auditoria</span>
-        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {total > 0 && <span style={{ fontSize: 12, color: '#6b6b66' }}>{total.toLocaleString('pt-BR')} registro{total !== 1 ? 's' : ''}</span>}
+          <button onClick={checkDbStatus} disabled={loadingStatus}
+                  style={{ fontSize: 12, padding: '4px 10px', background: 'transparent', border: '1px solid rgba(31,93,187,0.35)',
+                           borderRadius: 6, color: '#1f5dbb', cursor: 'pointer', opacity: loadingStatus ? 0.6 : 1 }}>
+            {loadingStatus ? 'Verificando…' : '🛡 Verificar BD'}
+          </button>
           <button onClick={clearHistory} disabled={clearing || total === 0}
                   style={{ fontSize: 12, padding: '4px 10px', background: 'transparent', border: '1px solid rgba(165,40,40,0.35)',
                            borderRadius: 6, color: '#a52828', cursor: 'pointer', opacity: (clearing || total === 0) ? 0.5 : 1 }}>
@@ -1407,6 +1423,30 @@ function AuditModal({ onClose }) {
           </button>
         </span>
       </div>
+
+      {/* Status do banco */}
+      {dbStatus && (
+        <div style={{ background: dbStatus.ok ? '#f0f7f0' : '#fdf0f0', borderBottom: '1px solid rgba(0,0,0,0.08)',
+                      padding: '12px 20px', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
+          {dbStatus.ok ? (
+            <>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#3d8c4d' }}>✓ Banco de dados confirmado</span>
+              <span style={{ fontSize: 12, color: '#555' }}>
+                Último save: <b>{dbStatus.live_doc.last_save ? new Date(dbStatus.live_doc.last_save).toLocaleString('pt-BR') : '—'}</b>
+              </span>
+              <span style={{ fontSize: 12, color: '#555' }}>Nós: <b>{dbStatus.live_doc.node_count}</b></span>
+              <span style={{ fontSize: 12, color: '#555' }}>Sub-fluxos: <b>{dbStatus.live_doc.subflow_count}</b></span>
+              <span style={{ fontSize: 12, color: '#555' }}>Tamanho doc: <b>{dbStatus.live_doc.doc_size}</b></span>
+              <span style={{ fontSize: 12, color: '#555' }}>Backups: <b>{dbStatus.counts.backups}</b></span>
+              <span style={{ fontSize: 12, color: '#555' }}>Imagens: <b>{dbStatus.counts.images}</b></span>
+              <span style={{ fontSize: 12, color: '#555' }}>Usuários: <b>{dbStatus.counts.users}</b></span>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: '#a52828' }}>✗ Erro ao consultar banco: {dbStatus.error}</span>
+          )}
+          <button onClick={() => setDbStatus(null)} style={{ marginLeft: 'auto', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#999' }}>✕</button>
+        </div>
+      )}
 
       {/* Filtros */}
       <div style={{ background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.08)', padding: '12px 20px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>

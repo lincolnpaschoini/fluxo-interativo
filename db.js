@@ -464,6 +464,40 @@ async function clearAuditLogs() {
   } catch (e) { console.error('clearAuditLogs error:', e.message); return { ok: false, error: e.message }; }
 }
 
+async function getDbStatus() {
+  try {
+    const [docRow, backupRow, auditRow, userRow, imgRow] = await Promise.all([
+      pool.query(`SELECT updated_at,
+                         jsonb_array_length(data->'nodes') AS node_count,
+                         jsonb_array_length(data->'edges') AS edge_count,
+                         (SELECT count(*) FROM jsonb_object_keys(data->'subflows')) AS subflow_count,
+                         pg_size_pretty(length(data::text)::bigint) AS doc_size
+                  FROM live_doc WHERE id = 1`),
+      pool.query(`SELECT COUNT(*) AS total FROM backups`),
+      pool.query(`SELECT COUNT(*) AS total FROM audit_logs`),
+      pool.query(`SELECT COUNT(*) AS total FROM users`),
+      pool.query(`SELECT COUNT(*) AS total FROM images`),
+    ]);
+    const doc = docRow.rows[0] || {};
+    return {
+      ok: true,
+      live_doc: {
+        last_save:     doc.updated_at || null,
+        node_count:    parseInt(doc.node_count  || 0, 10),
+        edge_count:    parseInt(doc.edge_count  || 0, 10),
+        subflow_count: parseInt(doc.subflow_count || 0, 10),
+        doc_size:      doc.doc_size || '0 bytes',
+      },
+      counts: {
+        backups:    parseInt(backupRow.rows[0].total, 10),
+        audit_logs: parseInt(auditRow.rows[0].total, 10),
+        users:      parseInt(userRow.rows[0].total, 10),
+        images:     parseInt(imgRow.rows[0].total, 10),
+      },
+    };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 module.exports = {
   init, pool,
   loadUsers, saveUsers,
@@ -473,5 +507,5 @@ module.exports = {
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
-  logAudit, batchLogAudit, getAuditLogs, clearAuditLogs,
+  logAudit, batchLogAudit, getAuditLogs, clearAuditLogs, getDbStatus,
 };

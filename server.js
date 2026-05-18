@@ -799,6 +799,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Status do banco (admin only) ─────────────────────────────────────────
+
+  if (req.url === '/api/admin/db-status' && req.method === 'GET') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    const status = await db.getDbStatus();
+    sendJson(res, 200, status);
+    return;
+  }
+
   // ── Auditoria (admin only) ────────────────────────────────────────────────
 
   if (req.url.startsWith('/api/audit') && req.method === 'GET') {
