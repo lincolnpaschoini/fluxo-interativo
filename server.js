@@ -281,7 +281,7 @@ function serveHtml(res, userInfo, newToken, simulateAs = null, liveDoc = null) {
       script += `window.__LIVE_DOC__=${JSON.stringify(liveDoc)};`;
     }
     html = html.replace('</head>', `<script>${script}</script>\n</head>`);
-    const headers = { 'Content-Type': 'text/html' };
+    const headers = { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' };
     if (newToken) headers['Set-Cookie'] = `fc_session=${newToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
     res.writeHead(200, headers);
     res.end(html, 'utf-8');

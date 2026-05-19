@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>POP — Fluxograma Interativo (Usuário)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11pt; color: #1a1a1a; background: #f0f2f5; }
+
+  /* ── Layout de página ── */
+  .page { max-width: 210mm; margin: 0 auto; background: #fff; padding: 20mm 18mm 28mm 25mm; box-shadow: 0 2px 20px rgba(0,0,0,0.12); }
+
+  /* ── Barra de ferramentas flutuante (não imprime) ── */
+  .toolbar {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 100; background: #1f5dbb; color: #fff;
+    padding: 10px 20px; display: flex; align-items: center; gap: 12px;
+    font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    border-radius: 12px; white-space: nowrap;
+  }
+  .toolbar b { font-size: 13px; }
+  .toolbar .hint { opacity: 0.85; font-size: 11px; }
+  .toolbar .tb-btn {
+    padding: 6px 14px; background: #fff; color: #1f5dbb;
+    border: none; border-radius: 6px; font: 600 12px Arial; cursor: pointer;
+  }
+  .toolbar .tb-btn:hover { background: #e0eaff; }
+  .toolbar .tb-btn.word { background: #1f7a3a; color: #fff; }
+  .toolbar .tb-btn.word:hover { background: #186030; }
+
+  /* ── Cabeçalho ── */
+  .header-table { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+  .header-table td, .header-table th { border: 1px solid #333; padding: 6px 10px; font-size: 10pt; }
+  .header-logo { width: 80px; text-align: center; font-weight: 700; font-size: 14pt; color: #1f5dbb; border-right: 2px solid #333; padding: 8px; }
+  .header-title { text-align: center; font-size: 13pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .header-meta td { font-size: 9.5pt; }
+  .header-meta .label { font-weight: 700; background: #f0f0f0; width: 160px; }
+
+  /* ── Sumário ── */
+  .toc { background: #f7f8fc; border: 1px solid #cdd5e8; border-radius: 4px; padding: 14px 18px; margin-bottom: 28px; }
+  .toc-title { font-weight: 700; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; color: #1f5dbb; }
+  .toc ol { padding-left: 20px; }
+  .toc li { font-size: 10pt; margin-bottom: 3px; color: #333; }
+
+  /* ── Seções ── */
+  h2 { font-size: 11pt; font-weight: 700; text-transform: uppercase; color: #fff; background: #1f5dbb;
+       padding: 5px 10px; margin: 22px 0 10px; letter-spacing: 0.05em; }
+  h3 { font-size: 10.5pt; font-weight: 700; margin: 16px 0 8px; color: #1a1a1a; border-bottom: 1px solid #c8d4f0; padding-bottom: 3px; }
+  p { margin-bottom: 8px; line-height: 1.55; font-size: 10.5pt; }
+
+  /* ── Listas ── */
+  ol.steps { padding-left: 0; list-style: none; }
+  ol.steps li { display: flex; gap: 10px; margin-bottom: 7px; font-size: 10.5pt; line-height: 1.5; }
+  ol.steps li .num { min-width: 42px; font-weight: 700; color: #1f5dbb; }
+  ol.steps li .txt { flex: 1; }
+  ul.items { padding-left: 20px; margin-bottom: 8px; }
+  ul.items li { margin-bottom: 4px; font-size: 10.5pt; line-height: 1.5; }
+
+  /* ── Placeholder de print ── */
+  .ph-wrap { position: relative; margin: 14px 0 20px; }
+
+  .print-placeholder {
+    border: 2px dashed #aab8d8;
+    border-radius: 8px;
+    background: #f4f7fd;
+    text-align: center;
+    padding: 22px 16px;
+    color: #5a6a8a;
+    cursor: pointer;
+    transition: all 0.18s;
+    outline: none;
+    user-select: none;
+  }
+  .print-placeholder:hover {
+    border-color: #1f5dbb;
+    background: #e8effc;
+  }
+  .print-placeholder.selected {
+    border-color: #1f5dbb;
+    border-style: solid;
+    background: #dce9ff;
+    box-shadow: 0 0 0 4px rgba(31,93,187,0.18);
+  }
+  .print-placeholder .ph-icon { font-size: 26px; margin-bottom: 6px; display: block; }
+  .print-placeholder .ph-label { font-weight: 700; font-size: 10pt; color: #3a5490; display: block; margin-bottom: 4px; }
+  .print-placeholder .ph-hint { font-size: 9pt; font-style: italic; color: #7a8aaa; }
+  .print-placeholder.selected .ph-hint { color: #1f5dbb; font-weight: 600; font-style: normal; }
+
+  /* ── Estado com imagem ── */
+  .ph-wrap.has-image .print-placeholder {
+    border-style: solid; border-color: #3d8c4d; background: #f0f9f2;
+    padding: 8px; cursor: default;
+  }
+  .ph-wrap.has-image .print-placeholder img {
+    max-width: 100%; border-radius: 4px; display: block; margin: 0 auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .ph-wrap.has-image .ph-sublabel {
+    font-size: 8.5pt; color: #5a6a8a; text-align: center; margin-top: 5px; font-style: italic;
+  }
+  .btn-remove-img {
+    position: absolute; top: 6px; right: 6px;
+    background: #a52828; color: #fff; border: none; border-radius: 50%;
+    width: 24px; height: 24px; font-size: 13px; cursor: pointer; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3); z-index: 10;
+  }
+  .btn-remove-img:hover { background: #c0392b; }
+
+  /* ── Alertas ── */
+  .note { background: #fff8e8; border-left: 4px solid #d4a017; padding: 8px 12px; margin: 10px 0 14px; font-size: 10pt; border-radius: 0 4px 4px 0; }
+  .note strong { color: #8a6000; }
+  .tip { background: #eef6f0; border-left: 4px solid #3d8c4d; padding: 8px 12px; margin: 10px 0 14px; font-size: 10pt; border-radius: 0 4px 4px 0; }
+  .tip strong { color: #2a6035; }
+
+  /* ── Tabela de revisão ── */
+  .rev-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  .rev-table th { background: #1f5dbb; color: #fff; font-size: 10pt; padding: 6px 10px; text-align: left; }
+  .rev-table td { border: 1px solid #c8d4f0; padding: 7px 10px; font-size: 10pt; }
+  .rev-table tr:nth-child(even) td { background: #f4f7fd; }
+  .rev-table .sig { min-width: 120px; height: 36px; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(60px);
+    background: #1a1a1a; color: #fff; padding: 10px 22px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 9999; transition: transform 0.25s; pointer-events: none;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Impressão ── */
+  @media print {
+    body { background: #fff; }
+    .toolbar, .no-print { display: none !important; }
+    .page { padding: 10mm 12mm 10mm 15mm; box-shadow: none; margin-bottom: 0; }
+    h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .rev-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toc { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .print-placeholder { border: 1px solid #ccc; }
+    .print-placeholder.selected { box-shadow: none; }
+    .btn-remove-img { display: none !important; }
+    .ph-wrap.has-image .print-placeholder { border: 1px solid #aaa; }
+  }
+  @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ── Barra de ferramentas flutuante ── -->
+<div class="toolbar no-print">
+  <b>📋 POP</b>
+  <span class="hint">Clique no espaço → Ctrl+V para colar</span>
+  <button class="tb-btn" onclick="window.print()">🖨 PDF</button>
+  <button class="tb-btn word" onclick="exportWord()">📄 Word</button>
+</div>
+
+<div id="toast"></div>
+
+<div class="page">
+
+  <!-- ════ CABEÇALHO ════ -->
+  <table class="header-table">
+    <tr>
+      <td class="header-logo" rowspan="3">PASCHOINI<br/>ADVOGADOS</td>
+      <td class="header-title" colspan="2">
+        PROCEDIMENTO OPERACIONAL PADRÃO<br/>
+        UTILIZAÇÃO DO SISTEMA FLUXOGRAMA INTERATIVO
+      </td>
+    </tr>
+    <tr class="header-meta">
+      <td class="label">Código Documento:</td>
+      <td>POP &nbsp;_____.&nbsp;_____</td>
+    </tr>
+    <tr class="header-meta">
+      <td class="label">Responsável Elaboração:</td>
+      <td>Lincoln Maxwel | Tecnologia</td>
+    </tr>
+    <tr class="header-meta">
+      <td style="width:80px"></td>
+      <td class="label">Responsável Validação:</td>
+      <td>___________________________________</td>
+    </tr>
+    <tr class="header-meta">
+      <td></td>
+      <td class="label">Empresa:</td>
+      <td>PASCHOINI ADVOGADOS</td>
+    </tr>
+    <tr class="header-meta">
+      <td></td>
+      <td class="label">Data de Emissão:</td>
+      <td>_____/_____/_________</td>
+    </tr>
+  </table>
+
+  <!-- ════ SUMÁRIO ════ -->
+  <div class="toc">
+    <div class="toc-title">Índice</div>
+    <ol>
+      <li>Objetivo</li>
+      <li>Aplicabilidade</li>
+      <li>Áreas Envolvidas</li>
+      <li>Referências</li>
+      <li>Premissas</li>
+      <li>Procedimento
+        <ol style="margin-top:4px;padding-left:18px;">
+          <li>6.1. Acessar o Sistema (Login)</li>
+          <li>6.2. Navegar no Fluxograma</li>
+          <li>6.3. Solicitar Acesso a uma Caixa</li>
+          <li>6.4. Abrir e Visualizar um Sub-fluxo</li>
+          <li>6.5. Editar Etapas do Sub-fluxo</li>
+          <li>6.6. Adicionar Imagem a uma Etapa</li>
+          <li>6.7. Adicionar Link a uma Etapa</li>
+          <li>6.8. Adicionar Terceiro Nível (Sub-etapas)</li>
+          <li>6.9. Salvar Alterações</li>
+        </ol>
+      </li>
+      <li>Histórico de Revisão e Aprovação</li>
+    </ol>
+  </div>
+
+  <!-- ════ 1. OBJETIVO ════ -->
+  <h2>1. Objetivo</h2>
+  <p>Padronizar a utilização do Sistema de Fluxograma Interativo pelos colaboradores da Paschoini Advogados, estabelecendo procedimentos claros para acesso, navegação, edição de conteúdo, solicitação de permissões e salvamento das informações registradas nos processos operacionais da empresa.</p>
+
+  <!-- ════ 2. APLICABILIDADE ════ -->
+  <h2>2. Aplicabilidade</h2>
+  <p>Aplica-se a todos os colaboradores com perfil de <strong>Usuário Comum</strong> que utilizam o Sistema de Fluxograma Interativo para consulta e atualização dos processos operacionais. Usuários com perfil de Administrador possuem procedimento específico complementar.</p>
+
+  <!-- ════ 3. ÁREAS ENVOLVIDAS ════ -->
+  <h2>3. Áreas Envolvidas</h2>
+  <ul class="items">
+    <li><strong>a) Usuário Operacional:</strong> navegar, consultar e editar os sub-fluxos autorizados pelo Administrador, mantendo as informações sempre atualizadas.</li>
+    <li><strong>b) Gestor da Área:</strong> orientar o uso correto da ferramenta, validar o conteúdo registrado e solicitar acesso às caixas necessárias.</li>
+    <li><strong>c) Administrador do Sistema:</strong> cadastrar usuários, conceder permissões de edição e garantir a estabilidade do sistema.</li>
+  </ul>
+
+  <!-- ════ 4. REFERÊNCIAS ════ -->
+  <h2>4. Referências</h2>
+  <ul class="items">
+    <li>Procedimentos internos de operação e segurança da informação da Paschoini Advogados.</li>
+    <li>Documentação técnica do Sistema de Fluxograma Interativo.</li>
+    <li>Políticas de uso de sistemas corporativos da empresa.</li>
+  </ul>
+
+  <!-- ════ 5. PREMISSAS ════ -->
+  <h2>5. Premissas</h2>
+  <ul class="items">
+    <li>O usuário deve possuir conta Microsoft corporativa (<strong>@paschoini.adv.br</strong>) ativa para autenticação no sistema.</li>
+    <li>O acesso para edição de cada caixa do fluxo é restrito e deve ser solicitado e aprovado pelo Administrador do Sistema.</li>
+    <li>Todas as alterações realizadas são salvas automaticamente e ficam registradas no histórico de auditoria.</li>
+    <li>As imagens inseridas são armazenadas de forma permanente no servidor — não são perdidas em atualizações do sistema.</li>
+    <li>O sistema pode ser acessado por computador ou dispositivo móvel por qualquer navegador moderno (Chrome, Edge, Firefox).</li>
+    <li>Em caso de dúvidas ou problemas técnicos, acionar o Administrador do Sistema.</li>
+  </ul>
+
+  <!-- ════ 6. PROCEDIMENTO ════ -->
+  <h2>6. Procedimento</h2>
+
+  <!-- 6.1 -->
+  <h3>6.1. Acessar o Sistema (Login)</h3>
+  <ol class="steps">
+    <li><span class="num">6.1.1.</span><span class="txt">Abrir o navegador (Chrome, Edge ou Firefox) e acessar o endereço do sistema: <strong>[INSERIR URL DO SISTEMA]</strong>.</span></li>
+    <li><span class="num">6.1.2.</span><span class="txt">Na tela de login, clicar no botão <strong>"Entrar com Microsoft"</strong>.</span></li>
+    <li><span class="num">6.1.3.</span><span class="txt">Inserir o e-mail corporativo (<em>@paschoini.adv.br</em>) e a senha da conta Microsoft quando solicitado.</span></li>
+    <li><span class="num">6.1.4.</span><span class="txt">Após a autenticação, o fluxograma principal será exibido automaticamente.</span></li>
+    <li><span class="num">6.1.5.</span><span class="txt">Caso o acesso seja negado ou ocorra erro, acionar o Administrador do Sistema.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Tela de Login">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Tela de Login</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.2 -->
+  <h3>6.2. Navegar no Fluxograma</h3>
+  <ol class="steps">
+    <li><span class="num">6.2.1.</span><span class="txt">Ao acessar o sistema, o fluxograma principal é exibido com todas as caixas de processo.</span></li>
+    <li><span class="num">6.2.2.</span><span class="txt">Para mover o fluxo: clicar e arrastar com o botão esquerdo do mouse em área vazia.</span></li>
+    <li><span class="num">6.2.3.</span><span class="txt">Para aplicar zoom: utilizar o scroll do mouse (rolar para frente = aproximar; para trás = afastar).</span></li>
+    <li><span class="num">6.2.4.</span><span class="txt">Em dispositivos móveis: deslizar com um dedo para mover o fluxo; usar dois dedos (pinça) para zoom.</span></li>
+    <li><span class="num">6.2.5.</span><span class="txt">Clicar sobre qualquer caixa do fluxo para abrir o sub-fluxo correspondente.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Fluxograma Principal">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Fluxograma Principal</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.3 -->
+  <h3>6.3. Solicitar Acesso a uma Caixa</h3>
+  <div class="note"><strong>Atenção:</strong> Apenas caixas com permissão liberada pelo Administrador permitem edição. Ao abrir uma caixa sem permissão, o sistema exibirá uma mensagem de restrição.</div>
+  <ol class="steps">
+    <li><span class="num">6.3.1.</span><span class="txt">Clicar sobre a caixa do fluxo que deseja editar para abrir o sub-fluxo.</span></li>
+    <li><span class="num">6.3.2.</span><span class="txt">Caso não possua permissão, o sistema exibirá a mensagem com o botão <strong>"Solicitar Acesso"</strong>.</span></li>
+    <li><span class="num">6.3.3.</span><span class="txt">Clicar no botão <strong>"Solicitar Acesso"</strong> e aguardar a confirmação de envio.</span></li>
+    <li><span class="num">6.3.4.</span><span class="txt">Aguardar o Administrador aprovar — uma notificação será exibida automaticamente na tela.</span></li>
+    <li><span class="num">6.3.5.</span><span class="txt">Após aprovação, recarregar a página (F5) para ativar o acesso de edição.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Tela de Restrição e Botão Solicitar Acesso">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Tela de Restrição — Botão "Solicitar Acesso"</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+  <div class="ph-wrap" data-label="Notificação de Aprovação de Acesso">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Notificação de Aprovação de Acesso</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.4 -->
+  <h3>6.4. Abrir e Visualizar um Sub-fluxo</h3>
+  <ol class="steps">
+    <li><span class="num">6.4.1.</span><span class="txt">Clicar sobre a caixa desejada no fluxograma principal.</span></li>
+    <li><span class="num">6.4.2.</span><span class="txt">O sub-fluxo será aberto exibindo as etapas do processo em sequência horizontal.</span></li>
+    <li><span class="num">6.4.3.</span><span class="txt">Cada etapa exibe: título, descrição, responsável, duração e eventuais imagens e links.</span></li>
+    <li><span class="num">6.4.4.</span><span class="txt">Para fechar, clicar em <strong>"← Fechar"</strong> ou pressionar <strong>Esc</strong>.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Sub-fluxo Aberto com Etapas">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Sub-fluxo Aberto com Etapas</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.5 -->
+  <h3>6.5. Editar Etapas do Sub-fluxo</h3>
+  <div class="tip"><strong>Dica:</strong> As alterações são sincronizadas em tempo real para todos os usuários conectados.</div>
+  <ol class="steps">
+    <li><span class="num">6.5.1.</span><span class="txt">Com o sub-fluxo aberto, localizar a etapa que deseja editar.</span></li>
+    <li><span class="num">6.5.2.</span><span class="txt">Clicar diretamente sobre o <strong>título</strong> da etapa para editá-lo.</span></li>
+    <li><span class="num">6.5.3.</span><span class="txt">Clicar na área de <strong>descrição</strong> para adicionar ou alterar o conteúdo (aceita negrito, itálico, listas).</span></li>
+    <li><span class="num">6.5.4.</span><span class="txt">Preencher o campo <strong>"Responsável"</strong> com o nome do colaborador responsável pela etapa.</span></li>
+    <li><span class="num">6.5.5.</span><span class="txt">Preencher o campo <strong>"Duração"</strong> com o tempo estimado (ex.: "2 dias", "1 hora").</span></li>
+    <li><span class="num">6.5.6.</span><span class="txt">Para adicionar nova etapa, clicar no botão <strong>"+ Etapa"</strong> ao final da lista.</span></li>
+    <li><span class="num">6.5.7.</span><span class="txt">Para remover uma etapa, clicar no ícone de exclusão (lixeira). <strong>Atenção: ação irreversível.</strong></span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Etapa em Modo de Edição">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Etapa em Modo de Edição</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.6 -->
+  <h3>6.6. Adicionar Imagem a uma Etapa</h3>
+  <ol class="steps">
+    <li><span class="num">6.6.1.</span><span class="txt">Com o sub-fluxo aberto, localizar a etapa desejada.</span></li>
+    <li><span class="num">6.6.2.</span><span class="txt">Clicar no ícone de <strong>imagem / câmera</strong> dentro da etapa.</span></li>
+    <li><span class="num">6.6.3.</span><span class="txt">Selecionar o arquivo de imagem no computador. Formatos aceitos: <strong>JPG, PNG, GIF, WEBP</strong>.</span></li>
+    <li><span class="num">6.6.4.</span><span class="txt">Aguardar o carregamento. A imagem será exibida em miniatura dentro da etapa.</span></li>
+    <li><span class="num">6.6.5.</span><span class="txt">Clicar sobre a miniatura para ampliar a imagem em tela cheia.</span></li>
+    <li><span class="num">6.6.6.</span><span class="txt">Para remover, clicar no ícone de exclusão sobre a miniatura da imagem.</span></li>
+    <li><span class="num">6.6.7.</span><span class="txt">É possível adicionar múltiplas imagens em uma mesma etapa.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Botão de Adição de Imagem na Etapa">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Botão de Adição de Imagem</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+  <div class="ph-wrap" data-label="Etapa com Imagem Inserida">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Etapa com Imagem Inserida</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.7 -->
+  <h3>6.7. Adicionar Link a uma Etapa</h3>
+  <ol class="steps">
+    <li><span class="num">6.7.1.</span><span class="txt">Com o sub-fluxo aberto, localizar a etapa desejada.</span></li>
+    <li><span class="num">6.7.2.</span><span class="txt">Clicar no botão <strong>"Adicionar Link"</strong> dentro da etapa (ícone de corrente).</span></li>
+    <li><span class="num">6.7.3.</span><span class="txt">No campo <strong>"Nome"</strong>, digitar um texto descritivo (ex.: "Proposta Comercial", "Planilha de Controle").</span></li>
+    <li><span class="num">6.7.4.</span><span class="txt">No campo <strong>"URL"</strong>, colar o endereço completo do link (ex.: <em>https://docs.google.com/...</em>).</span></li>
+    <li><span class="num">6.7.5.</span><span class="txt">O link será salvo e exibido na etapa, clicável por todos os usuários.</span></li>
+    <li><span class="num">6.7.6.</span><span class="txt">Para remover, clicar no ícone de exclusão ao lado do link cadastrado.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Campos de Nome e URL do Link">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Campos de Nome e URL do Link</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+  <div class="ph-wrap" data-label="Etapa com Link Inserido">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Etapa com Link Inserido</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.8 -->
+  <h3>6.8. Adicionar Terceiro Nível (Sub-etapas)</h3>
+  <div class="note"><strong>Atenção:</strong> O terceiro nível permite detalhar uma etapa em passos menores. Use quando a etapa envolver múltiplas ações distintas.</div>
+  <ol class="steps">
+    <li><span class="num">6.8.1.</span><span class="txt">Com o sub-fluxo aberto, localizar a etapa que deseja detalhar.</span></li>
+    <li><span class="num">6.8.2.</span><span class="txt">Clicar no botão <strong>"+ Sub-etapas"</strong> ou no ícone de terceiro nível dentro da etapa.</span></li>
+    <li><span class="num">6.8.3.</span><span class="txt">Um novo painel será aberto exibindo as sub-etapas daquela etapa.</span></li>
+    <li><span class="num">6.8.4.</span><span class="txt">Para adicionar nova sub-etapa, clicar em <strong>"+ Sub-etapa"</strong>.</span></li>
+    <li><span class="num">6.8.5.</span><span class="txt">Preencher o título e a descrição de cada sub-etapa, e o responsável e duração se necessário.</span></li>
+    <li><span class="num">6.8.6.</span><span class="txt">Para voltar ao sub-fluxo principal, clicar em <strong>"← Voltar"</strong>.</span></li>
+    <li><span class="num">6.8.7.</span><span class="txt">A etapa que possui sub-etapas será marcada visualmente com um indicador especial.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Botão de Adição de Sub-etapas (3° Nível)">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Botão de Adição de Sub-etapas (3° Nível)</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+  <div class="ph-wrap" data-label="Painel de Sub-etapas (Terceiro Nível) Aberto">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Painel de Sub-etapas (Terceiro Nível) Aberto</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- 6.9 -->
+  <h3>6.9. Salvar Alterações</h3>
+  <div class="tip"><strong>Dica:</strong> Alterações nos sub-fluxos são sincronizadas automaticamente. O botão "Salvar" garante a persistência do estado geral do fluxo.</div>
+  <ol class="steps">
+    <li><span class="num">6.9.1.</span><span class="txt">As alterações nos sub-fluxos são <strong>sincronizadas automaticamente</strong> ao serem realizadas.</span></li>
+    <li><span class="num">6.9.2.</span><span class="txt">Ao concluir as edições, clicar no botão <strong>"Salvar"</strong> na barra superior do sistema.</span></li>
+    <li><span class="num">6.9.3.</span><span class="txt">Aguardar a confirmação visual: o botão exibirá o status <strong>"Salvo ✓"</strong>.</span></li>
+    <li><span class="num">6.9.4.</span><span class="txt">Em caso de falha, verificar a conexão com a internet e tentar novamente.</span></li>
+    <li><span class="num">6.9.5.</span><span class="txt">Todas as alterações ficam registradas no histórico de auditoria e podem ser consultadas pelo Administrador.</span></li>
+  </ol>
+  <div class="ph-wrap" data-label="Barra Superior com Botão Salvar">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Barra Superior com Botão "Salvar"</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+  <div class="ph-wrap" data-label="Confirmação de Salvamento">
+    <div class="print-placeholder" tabindex="0">
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">Confirmação de Salvamento</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    </div>
+  </div>
+
+  <!-- ════ 7. HISTÓRICO ════ -->
+  <h2>7. Histórico de Revisão e Aprovação</h2>
+  <table class="rev-table">
+    <thead>
+      <tr>
+        <th style="width:100px">Data</th>
+        <th>Nome Completo</th>
+        <th style="width:160px">Função</th>
+        <th style="width:140px">Assinatura</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>______/______</td>
+        <td>Lincoln Maxwel</td>
+        <td>Tecnologia</td>
+        <td class="sig"></td>
+      </tr>
+      <tr>
+        <td>______/______</td>
+        <td></td>
+        <td>Operações</td>
+        <td class="sig"></td>
+      </tr>
+      <tr>
+        <td>______/______</td>
+        <td></td>
+        <td>CEO</td>
+        <td class="sig"></td>
+      </tr>
+    </tbody>
+  </table>
+
+</div><!-- /page -->
+
+<script>
+/* ── Exportar para Word ── */
+function exportWord() {
+  // Clona o conteúdo da página sem os elementos no-print
+  const clone = document.querySelector('.page').cloneNode(true);
+  clone.querySelectorAll('.no-print, .btn-remove-img').forEach(el => el.remove());
+  clone.querySelectorAll('.ph-sublabel').forEach(el => el.remove());
+
+  // Estilos inline simplificados para Word
+  const styles = `
+    body { font-family: Arial, sans-serif; font-size: 11pt; color: #1a1a1a; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #333; padding: 5px 8px; font-size: 10pt; }
+    h2 { font-size: 11pt; font-weight: bold; text-transform: uppercase;
+         color: white; background: #1f5dbb; padding: 4px 8px; margin: 16px 0 8px; }
+    h3 { font-size: 10.5pt; font-weight: bold; margin: 14px 0 6px;
+         border-bottom: 1px solid #c8d4f0; padding-bottom: 2px; }
+    .toc { background: #f7f8fc; border: 1px solid #cdd5e8; padding: 10px 14px; margin-bottom: 20px; }
+    .note { background: #fff8e8; border-left: 4px solid #d4a017; padding: 6px 10px; margin: 8px 0; }
+    .tip  { background: #eef6f0; border-left: 4px solid #3d8c4d; padding: 6px 10px; margin: 8px 0; }
+    ol.steps { list-style: none; padding: 0; }
+    ol.steps li { display: flex; gap: 8px; margin-bottom: 5px; }
+    ol.steps li .num { font-weight: bold; color: #1f5dbb; min-width: 40px; }
+    ul.items { padding-left: 18px; }
+    ul.items li { margin-bottom: 3px; }
+    .ph-wrap { margin: 12px 0 16px; }
+    .print-placeholder { border: 1px dashed #aab8d8; background: #f4f7fd;
+                         text-align: center; padding: 14px; border-radius: 6px; }
+    .ph-wrap.has-image .print-placeholder { border: 1px solid #3d8c4d; background: #f0f9f2; padding: 6px; }
+    .ph-wrap.has-image img { max-width: 100%; display: block; margin: 0 auto; }
+    .ph-label { font-weight: bold; font-size: 10pt; color: #3a5490; display: block; }
+    .ph-hint  { font-size: 9pt; font-style: italic; color: #7a8aaa; display: block; }
+    .rev-table th { background: #1f5dbb; color: white; }
+    .rev-table tr:nth-child(even) td { background: #f4f7fd; }
+    .sig { height: 32px; }
+    .header-logo { font-weight: bold; font-size: 14pt; color: #1f5dbb; }
+    .header-title { text-align: center; font-size: 12pt; font-weight: bold; text-transform: uppercase; }
+    .label { font-weight: bold; background: #f0f0f0; }
+  `;
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:w="urn:schemas-microsoft-com:office:word"
+          xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>POP — Fluxograma Interativo</title>
+      <!--[if gte mso 9]><xml>
+        <w:WordDocument>
+          <w:View>Print</w:View>
+          <w:Zoom>90</w:Zoom>
+          <w:DoNotOptimizeForBrowser/>
+        </w:WordDocument>
+      </xml><![endif]-->
+      <style>${styles}</style>
+    </head>
+    <body>${clone.innerHTML}</body>
+    </html>`;
+
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'POP - Fluxograma Interativo - Usuario.doc';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ── Cola de imagens e seleção de placeholder ── */
+(function () {
+  let selected = null;
+
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  function selectPlaceholder(wrap) {
+    if (wrap.classList.contains('has-image')) return;
+    // Deselect previous
+    if (selected && selected !== wrap) {
+      selected.querySelector('.print-placeholder').classList.remove('selected');
+    }
+    selected = wrap;
+    wrap.querySelector('.print-placeholder').classList.add('selected');
+    toast('✓ Selecionado — agora pressione Ctrl+V para colar o print');
+  }
+
+  function insertImage(wrap, dataUrl) {
+    const label = wrap.dataset.label || 'Print inserido';
+    const ph = wrap.querySelector('.print-placeholder');
+
+    ph.classList.remove('selected');
+    ph.innerHTML = `<img src="${dataUrl}" alt="${label}" />`;
+    ph.style.cursor = 'default';
+
+    const sub = document.createElement('div');
+    sub.className = 'ph-sublabel';
+    sub.textContent = label;
+    wrap.appendChild(sub);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn-remove-img no-print';
+    btn.title = 'Remover imagem';
+    btn.textContent = '✕';
+    btn.onclick = (e) => { e.stopPropagation(); removeImage(wrap); };
+    wrap.appendChild(btn);
+
+    wrap.classList.add('has-image');
+    selected = null;
+    toast('✅ Imagem inserida! Clique no ✕ para remover.');
+    advanceToNext(wrap);
+  }
+
+  function removeImage(wrap) {
+    const label = wrap.dataset.label || '';
+    wrap.classList.remove('has-image');
+    wrap.querySelectorAll('.ph-sublabel, .btn-remove-img').forEach(el => el.remove());
+    const ph = wrap.querySelector('.print-placeholder');
+    ph.style.cursor = '';
+    ph.innerHTML = `
+      <span class="ph-icon">📷</span>
+      <span class="ph-label">${label}</span>
+      <span class="ph-hint">Clique aqui para selecionar, depois Ctrl+V para colar o print</span>
+    `;
+    toast('🗑 Imagem removida.');
+  }
+
+  function advanceToNext(currentWrap) {
+    const all = [...document.querySelectorAll('.ph-wrap:not(.has-image)')];
+    if (all.length > 0) {
+      all[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      selectPlaceholder(all[0]);
+    }
+  }
+
+  // Click to select
+  document.querySelectorAll('.ph-wrap').forEach(wrap => {
+    wrap.addEventListener('click', () => selectPlaceholder(wrap));
+  });
+
+  // Global paste
+  document.addEventListener('paste', (e) => {
+    if (!selected) {
+      // Try to find first empty
+      const first = document.querySelector('.ph-wrap:not(.has-image)');
+      if (first) selected = first;
+      else return;
+    }
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        const reader = new FileReader();
+        reader.onload = (ev) => insertImage(selected, ev.target.result);
+        reader.readAsDataURL(blob);
+        break;
+      }
+    }
+  });
+
+  // Keyboard: Enter/Space to select, Escape to deselect
+  document.querySelectorAll('.print-placeholder').forEach(ph => {
+    ph.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectPlaceholder(ph.closest('.ph-wrap'));
+      }
+      if (e.key === 'Escape' && selected) {
+        ph.classList.remove('selected');
+        selected = null;
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

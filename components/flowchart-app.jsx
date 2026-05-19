@@ -55,13 +55,6 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const DOC_KEY = 'fluxograma:doc:v2';
 
-function loadDoc() {
-  try {
-    const raw = localStorage.getItem(DOC_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) { return null; }
-}
 function saveDoc(doc) {
   try { localStorage.setItem(DOC_KEY, JSON.stringify(doc)); } catch (e) {}
 }
@@ -1719,9 +1712,7 @@ function AuditModal({ onClose }) {
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const serverDoc = (!PUBLISHED_SLUG && LIVE_DOC) ? LIVE_DOC : null;
-  const localDoc = !PUBLISHED_SLUG ? loadDoc() : null;
-  console.log('>>> serverDoc:', serverDoc ? 'sim' : 'nao', '| localDoc:', localDoc ? 'sim' : 'nao');
-  const initial = serverDoc || localDoc;
+  const initial = serverDoc;
   const [nodes, setNodes] = React.useState(PUBLISHED_SLUG ? [] : (initial?.nodes || SEED_NODES));
   const [edges, setEdges] = React.useState(PUBLISHED_SLUG ? [] : (initial?.edges || SEED_EDGES));
   const [docTitle, setDocTitle] = React.useState(initial?.title || 'Jornada Comercial — Lead até Pós-Contrato');
@@ -1963,8 +1954,8 @@ function App() {
         .catch(() => {});
     };
 
-    // Em modo simulação ou usuário comum: sincroniza ao abrir
-    if (!IS_ADMIN || SIMULATE_AS) applyLiveDoc();
+    // Sempre sincroniza do servidor ao abrir (garante dados frescos do banco independente de cache)
+    applyLiveDoc();
 
     const es = new EventSource('/api/events/__main__');
 
