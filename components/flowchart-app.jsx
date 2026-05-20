@@ -1586,7 +1586,7 @@ function AuditModal({ onClose }) {
                         return (
                           <div key={i} style={{ marginBottom: 6 }}>
                             <div style={{ fontWeight: 600, color: '#3d8c4d' }}>+ {title}</div>
-                            {!isStr && item.desc     && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição preenchida</div>}
+                            {!isStr && item.desc     && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição: {typeof item.desc === 'string' ? <em>"{item.desc}"</em> : 'preenchida'}</div>}
                             {!isStr && item.owner    && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Responsável: "{item.owner}"</div>}
                             {!isStr && item.duration && <div style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Duração: "{item.duration}"</div>}
                             {!isStr && item.images && item.images.length > 0 && (

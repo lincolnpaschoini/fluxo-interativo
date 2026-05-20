@@ -153,7 +153,7 @@ function diffDocs(before, after) {
         if (!bs && as_) {
           const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
           const detail = { title: as_.title || 'Nova etapa' };
-          if (as_.desc)                    detail.desc = true;
+          if (as_.desc)                    detail.desc = stripHtml(as_.desc).slice(0, 200) || true;
           if ((as_.owner || ''))           detail.owner = as_.owner || '';
           if ((as_.duration || ''))        detail.duration = as_.duration || '';
           if ((as_.images || []).length)   detail.images = (as_.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
