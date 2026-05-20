@@ -90,6 +90,22 @@ function mergeDoc(base, client, server) {
 const NODE_FIELD_LABELS = { label: 'Título', color: 'Cor', shape: 'Formato', w: 'Largura', h: 'Altura', allowedUsers: 'Permissões' };
 const NODE_SKIP_FIELDS  = new Set(['x', 'y', 'id']);
 
+// Normaliza um step para comparação: garante campos ausentes = valores padrão,
+// evitando falsos "campos internos alterados" por diferença de {subSteps:[]} vs {}
+function normalizeStep(s) {
+  return {
+    title:     s.title     || '',
+    desc:      s.desc      || '',
+    owner:     s.owner     || '',
+    duration:  s.duration  || '',
+    color:     s.color     || '',
+    hasSubflow: !!s.hasSubflow,
+    subSteps:  s.subSteps  || [],
+    images:    s.images    || [],
+    links:     s.links     || [],
+  };
+}
+
 function diffDocs(before, after) {
   const entries = [];
   const bNodes = Object.fromEntries((before.nodes || []).map(n => [n.id, n]));
@@ -165,7 +181,7 @@ function diffDocs(before, after) {
           if ((bs.images || []).length) detail.images = (bs.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
           if ((bs.links  || []).length) detail.links  = (bs.links  || []).map(l => ({ label: l.label, url: l.url }));
           removed.push(detail);
-        } else if (bs && as_ && JSON.stringify(bs) !== JSON.stringify(as_)) {
+        } else if (bs && as_ && JSON.stringify(normalizeStep(bs)) !== JSON.stringify(normalizeStep(as_))) {
           const stepChanges = [];
           const stripHtml = (s) => (s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (bs.title !== as_.title)
@@ -215,7 +231,7 @@ function diffDocs(before, after) {
                 addedSubs.push({ title: ass.title || 'Nova sub-etapa', desc: ass.desc ? stripHtml(ass.desc).slice(0, 150) : null });
               } else if (bss && !ass) {
                 removedSubs.push({ title: bss.title || 'Sub-etapa' });
-              } else if (bss && ass && JSON.stringify(bss) !== JSON.stringify(ass)) {
+              } else if (bss && ass && JSON.stringify({ title: bss.title||'', desc: bss.desc||'', owner: bss.owner||'', duration: bss.duration||'', images: bss.images||[], links: bss.links||[] }) !== JSON.stringify({ title: ass.title||'', desc: ass.desc||'', owner: ass.owner||'', duration: ass.duration||'', images: ass.images||[], links: ass.links||[] })) {
                 const sc = [];
                 if (bss.title !== ass.title) sc.push({ type: 'title', before: bss.title || '', after: ass.title || '' });
                 if (bss.desc !== ass.desc) { const p = stripHtml(ass.desc).slice(0, 150); sc.push({ type: 'desc', after: p || null }); }
@@ -241,6 +257,9 @@ function diffDocs(before, after) {
             stepChanges.push({ type: 'substeps', added: addedSubs, removed: removedSubs, edited: editedSubs });
           }
 
+          if (stepChanges.length === 0) {
+            console.log('[audit-debug] stepChanges vazio para etapa:', bs.title, '| bs:', JSON.stringify(normalizeStep(bs)), '| as_:', JSON.stringify(normalizeStep(as_)));
+          }
           edited.push({ title: bs.title || 'Etapa', changes: stepChanges });
         }
       }

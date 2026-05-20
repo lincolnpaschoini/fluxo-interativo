@@ -1321,11 +1321,13 @@ function AuditModal({ onClose }) {
   // Initial load
   React.useEffect(() => { fetchLogsRef.current(true); }, []);
 
-  // Real-time: listen to SSE audit_new events
+  // Real-time: listen to SSE audit_new events AND local dispatch from flushDocSync
   React.useEffect(() => {
     const es = new EventSource('/api/events/__main__');
     es.addEventListener('audit_new', () => fetchLogsRef.current(true));
-    return () => es.close();
+    const onLocalRefresh = () => fetchLogsRef.current(true);
+    window.addEventListener('audit-refresh', onLocalRefresh);
+    return () => { es.close(); window.removeEventListener('audit-refresh', onLocalRefresh); };
   }, []);
 
   const clearHistory = async () => {
@@ -1961,6 +1963,7 @@ function App() {
           let subflows = {};
           try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(_) {}
           baseDocRef.current = { nodes: nodesRef.current, edges: edgesRef.current, subflows };
+          window.dispatchEvent(new Event('audit-refresh'));
         })
         .catch(() => {});
     }
