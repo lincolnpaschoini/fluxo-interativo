@@ -849,6 +849,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const auditDeleteMatch = req.url.match(/^\/api\/audit\/(\d+)$/) ;
+  if (auditDeleteMatch && req.method === 'DELETE') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    const result = await db.deleteAuditLog(parseInt(auditDeleteMatch[1], 10));
+    sendJson(res, 200, result);
+    return;
+  }
+
   const publishMatch = req.url.match(/^\/api\/publish\/load\/([a-z0-9][a-z0-9\-]{0,59})$/);
   if (publishMatch && req.method === 'GET') {
     try {

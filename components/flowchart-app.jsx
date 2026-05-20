@@ -1289,6 +1289,8 @@ function AuditModal({ onClose }) {
   const [offset, setOffset] = React.useState(0);
   const [expandedId, setExpandedId] = React.useState(null);
   const [clearing, setClearing] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState(null);
+  const [hoveredId, setHoveredId] = React.useState(null);
   const [dbStatus, setDbStatus] = React.useState(null);
   const [loadingStatus, setLoadingStatus] = React.useState(false);
   const LIMIT = 50;
@@ -1333,6 +1335,19 @@ function AuditModal({ onClose }) {
       await fetch('/api/audit', { method: 'DELETE' });
       setLogs([]); setTotal(0); setOffset(0);
     } finally { setClearing(false); }
+  };
+
+  const deleteLog = async (e, id) => {
+    e.stopPropagation();
+    setDeletingId(id);
+    try {
+      const r = await fetch(`/api/audit/${id}`, { method: 'DELETE' });
+      if ((await r.json()).ok) {
+        setLogs(prev => prev.filter(l => l.id !== id));
+        setTotal(prev => prev - 1);
+        if (expandedId === id) setExpandedId(null);
+      }
+    } finally { setDeletingId(null); }
   };
 
   const checkDbStatus = async () => {
@@ -1501,14 +1516,17 @@ function AuditModal({ onClose }) {
                 (meta.edited   && meta.edited.length   > 0) ||
                 meta.stepCount != null || meta.label || meta.color
               );
+              const isHovered  = hoveredId === log.id;
+              const isDeleting = deletingId === log.id;
               return (
                 <div key={log.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
                   <div
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 20px',
-                             transition: 'background 0.1s', cursor: hasDetail ? 'pointer' : 'default' }}
+                             transition: 'background 0.1s', cursor: hasDetail ? 'pointer' : 'default',
+                             background: isHovered ? '#f5f4f0' : '' }}
                     onClick={() => hasDetail && setExpandedId(isOpen ? null : log.id)}
-                    onMouseEnter={e => { if (hasDetail) e.currentTarget.style.background = '#f5f4f0'; }}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    onMouseEnter={() => setHoveredId(log.id)}
+                    onMouseLeave={() => setHoveredId(null)}>
                     <span style={{ fontSize: 17, lineHeight: 1.35, flexShrink: 0, width: 24, textAlign: 'center' }}>{icon}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, color: '#1d1d1b', lineHeight: 1.45 }}>{log.description}</div>
@@ -1517,6 +1535,20 @@ function AuditModal({ onClose }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                       <span style={{ fontSize: 11.5, color: '#9a9a95', fontVariantNumeric: 'tabular-nums' }}>{time}</span>
                       {hasDetail && <span style={{ fontSize: 10, color: '#aaa' }}>{isOpen ? '▲' : '▼'}</span>}
+                      <button
+                        onClick={e => deleteLog(e, log.id)}
+                        disabled={isDeleting}
+                        title="Excluir registro"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                 width: 24, height: 24, padding: 0,
+                                 background: isDeleting ? 'rgba(165,40,40,0.08)' : (isHovered ? 'rgba(165,40,40,0.08)' : 'transparent'),
+                                 border: isHovered || isDeleting ? '1px solid rgba(165,40,40,0.25)' : '1px solid transparent',
+                                 borderRadius: 5, cursor: isDeleting ? 'default' : 'pointer',
+                                 opacity: isHovered || isDeleting ? 1 : 0,
+                                 transition: 'opacity 0.15s, background 0.15s',
+                                 fontSize: 13, color: '#a52828' }}>
+                        {isDeleting ? '…' : '🗑'}
+                      </button>
                     </div>
                   </div>
                   {isOpen && hasDetail && (

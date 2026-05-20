@@ -464,6 +464,13 @@ async function clearAuditLogs() {
   } catch (e) { console.error('clearAuditLogs error:', e.message); return { ok: false, error: e.message }; }
 }
 
+async function deleteAuditLog(id) {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM audit_logs WHERE id = $1', [id]);
+    return { ok: true, deleted: rowCount > 0 };
+  } catch (e) { console.error('deleteAuditLog error:', e.message); return { ok: false, error: e.message }; }
+}
+
 async function getDbStatus() {
   try {
     const [docRow, backupRow, auditRow, userRow, imgRow] = await Promise.all([
@@ -507,5 +514,5 @@ module.exports = {
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
-  logAudit, batchLogAudit, getAuditLogs, clearAuditLogs, getDbStatus,
+  logAudit, batchLogAudit, getAuditLogs, clearAuditLogs, deleteAuditLog, getDbStatus,
 };
