@@ -689,10 +689,11 @@ const server = http.createServer(async (req, res) => {
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(merged);
-        // Audita comparando o estado real do banco ANTES vs DEPOIS do merge
-        // (evita entradas falsas quando o base do cliente está desatualizado)
-        if (serverDoc) {
-          const changes = diffDocs(serverDoc, merged);
+        // Audita ao fechar o modal (baseline enviado pelo cliente) ou na ausência de baseline
+        // skipAudit=true é enviado nos syncs intermediários enquanto o modal está aberto
+        if (serverDoc && !body.skipAudit) {
+          const auditBefore = body.auditBaseline || serverDoc;
+          const changes = diffDocs(auditBefore, merged);
           if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
         }
       } else {
