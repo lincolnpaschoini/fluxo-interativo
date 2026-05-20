@@ -649,10 +649,12 @@ const server = http.createServer(async (req, res) => {
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(merged);
-        // Audita apenas o que o cliente especificamente alterou (base → client)
-        const clientState = { nodes: body.nodes, edges: body.edges, subflows: body.subflows || {} };
-        const changes = diffDocs(base, clientState);
-        if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
+        // Audita comparando o estado real do banco ANTES vs DEPOIS do merge
+        // (evita entradas falsas quando o base do cliente está desatualizado)
+        if (serverDoc) {
+          const changes = diffDocs(serverDoc, merged);
+          if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
+        }
       } else {
         await db.saveLiveDoc(body);
       }

@@ -1954,8 +1954,9 @@ function App() {
         .catch(() => {});
     };
 
-    // Sempre sincroniza do servidor ao abrir (garante dados frescos do banco independente de cache)
-    applyLiveDoc();
+    // Em modo simulação ou usuário comum: sincroniza ao abrir
+    // (admin recebe dados frescos via LIVE_DOC no HTML, que agora tem Cache-Control: no-store)
+    if (!IS_ADMIN || SIMULATE_AS) applyLiveDoc();
 
     const es = new EventSource('/api/events/__main__');
 
