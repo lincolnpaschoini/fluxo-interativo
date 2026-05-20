@@ -158,47 +158,45 @@ function diffDocs(before, after) {
     } else if (bSf[key] && !aSf[key]) {
       entries.push({ action: 'subflow_delete', target: key, description: `Sub-fluxo removido: "${nodeLabel}"`,
         metadata: { stepCount: (bSf[key]?.steps || []).length } });
-    } else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key])) {
+    } else if (bSf[key] && aSf[key]) {
       const bSteps = bSf[key]?.steps || [];
       const aSteps = aSf[key]?.steps || [];
-      // Debug: loga chaves fora de 'steps' que diferem
-      const bOther = Object.fromEntries(Object.entries(bSf[key]).filter(([k]) => k !== 'steps'));
-      const aOther = Object.fromEntries(Object.entries(aSf[key]).filter(([k]) => k !== 'steps'));
-      if (JSON.stringify(bOther) !== JSON.stringify(aOther)) console.log(`[audit-debug] subflow ${key} difere fora de steps: b=${JSON.stringify(bOther)} a=${JSON.stringify(aOther)}`);
+      // Usa etapas normalizadas para detectar mudanças reais — evita falsos positivos por
+      // diferenças cosméticas (ordem de chaves, campos ausentes vs. [] vazio, etc.)
+      if (JSON.stringify(bSteps.map(normalizeStep)) === JSON.stringify(aSteps.map(normalizeStep))) continue;
+      const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
+      const stripHtmlInner = (s) => (s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       const bMap = Object.fromEntries(bSteps.map((s, i) => [s.id || `_${i}`, s]));
       const aMap = Object.fromEntries(aSteps.map((s, i) => [s.id || `_${i}`, s]));
       const added = [], removed = [], edited = [];
       for (const k of new Set([...Object.keys(bMap), ...Object.keys(aMap)])) {
         const bs = bMap[k], as_ = aMap[k];
         if (!bs && as_) {
-          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
           const detail = { title: as_.title || 'Nova etapa' };
-          if (as_.desc)                    detail.desc = stripHtml(as_.desc).slice(0, 200) || true;
+          if (as_.desc)                    detail.desc = stripHtmlInner(as_.desc).slice(0, 200) || true;
           if ((as_.owner || ''))           detail.owner = as_.owner || '';
           if ((as_.duration || ''))        detail.duration = as_.duration || '';
           if ((as_.images || []).length)   detail.images = (as_.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
           if ((as_.links  || []).length)   detail.links  = (as_.links  || []).map(l => ({ label: l.label, url: l.url }));
           added.push(detail);
         } else if (bs && !as_) {
-          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
           const detail = { title: bs.title || 'Etapa' };
           if ((bs.images || []).length) detail.images = (bs.images || []).map(i => ({ url: safeUrl(i.url), caption: i.caption || '' }));
           if ((bs.links  || []).length) detail.links  = (bs.links  || []).map(l => ({ label: l.label, url: l.url }));
           removed.push(detail);
         } else if (bs && as_ && JSON.stringify(normalizeStep(bs)) !== JSON.stringify(normalizeStep(as_))) {
           const stepChanges = [];
-          const stripHtml = (s) => (s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (bs.title !== as_.title)
             stepChanges.push({ type: 'title', before: bs.title || '', after: as_.title || '' });
-          if (bs.desc !== as_.desc) {
-            const preview = stripHtml(as_.desc).slice(0, 200);
+          if ((bs.desc || '') !== (as_.desc || '')) {
+            const preview = stripHtmlInner(as_.desc).slice(0, 200);
             stepChanges.push({ type: 'desc', after: preview || null });
           }
           if ((bs.owner || '') !== (as_.owner || ''))
             stepChanges.push({ type: 'owner', before: bs.owner || '', after: as_.owner || '' });
           if ((bs.duration || '') !== (as_.duration || ''))
             stepChanges.push({ type: 'duration', before: bs.duration || '', after: as_.duration || '' });
-          if (bs.color !== as_.color)
+          if ((bs.color || '') !== (as_.color || ''))
             stepChanges.push({ type: 'color', before: bs.color, after: as_.color });
           if ((bs.hasSubflow || false) !== (as_.hasSubflow || false))
             stepChanges.push({ type: 'hasSubflow', after: as_.hasSubflow || false });
@@ -208,8 +206,6 @@ function diffDocs(before, after) {
           const aImgMap = Object.fromEntries((as_.images || []).map(i => [i.id, i]));
           const addedImgs   = (as_.images || []).filter(i => !bImgMap[i.id]);
           const removedImgs = (bs.images || []).filter(i => !aImgMap[i.id]);
-          // Store URL only if it's a server path (not a huge base64 blob)
-          const safeUrl = (u) => (u && u.length < 800 && !u.startsWith('data:')) ? u : null;
           if (addedImgs.length)   stepChanges.push({ type: 'images_added',   images: addedImgs.map(i   => ({ url: safeUrl(i.url),   caption: i.caption || '' })) });
           if (removedImgs.length) stepChanges.push({ type: 'images_removed', images: removedImgs.map(i => ({ url: safeUrl(i.url),   caption: i.caption || '' })) });
 
@@ -232,13 +228,13 @@ function diffDocs(before, after) {
             for (const k of new Set([...Object.keys(bSubMap), ...Object.keys(aSubMap)])) {
               const bss = bSubMap[k], ass = aSubMap[k];
               if (!bss && ass) {
-                addedSubs.push({ title: ass.title || 'Nova sub-etapa', desc: ass.desc ? stripHtml(ass.desc).slice(0, 150) : null });
+                addedSubs.push({ title: ass.title || 'Nova sub-etapa', desc: ass.desc ? stripHtmlInner(ass.desc).slice(0, 150) : null });
               } else if (bss && !ass) {
                 removedSubs.push({ title: bss.title || 'Sub-etapa' });
               } else if (bss && ass && JSON.stringify({ title: bss.title||'', desc: bss.desc||'', owner: bss.owner||'', duration: bss.duration||'', images: bss.images||[], links: bss.links||[] }) !== JSON.stringify({ title: ass.title||'', desc: ass.desc||'', owner: ass.owner||'', duration: ass.duration||'', images: ass.images||[], links: ass.links||[] })) {
                 const sc = [];
                 if (bss.title !== ass.title) sc.push({ type: 'title', before: bss.title || '', after: ass.title || '' });
-                if (bss.desc !== ass.desc) { const p = stripHtml(ass.desc).slice(0, 150); sc.push({ type: 'desc', after: p || null }); }
+                if ((bss.desc||'') !== (ass.desc||'')) { const p = stripHtmlInner(ass.desc).slice(0, 150); sc.push({ type: 'desc', after: p || null }); }
                 if ((bss.owner || '') !== (ass.owner || '')) sc.push({ type: 'owner', before: bss.owner || '', after: ass.owner || '' });
                 if ((bss.duration || '') !== (ass.duration || '')) sc.push({ type: 'duration', before: bss.duration || '', after: ass.duration || '' });
                 const bImgMapSub = Object.fromEntries((bss.images || []).map(i => [i.id, i]));
@@ -261,14 +257,13 @@ function diffDocs(before, after) {
             stepChanges.push({ type: 'substeps', added: addedSubs, removed: removedSubs, edited: editedSubs });
           }
 
-          if (stepChanges.length === 0) {
-            console.log('[audit-debug] stepChanges vazio para etapa:', bs.title, '| bs:', JSON.stringify(normalizeStep(bs)), '| as_:', JSON.stringify(normalizeStep(as_)));
-          }
           edited.push({ title: bs.title || 'Etapa', changes: stepChanges });
         }
       }
-      entries.push({ action: 'subflow_edit', target: key, description: `Sub-fluxo editado: "${nodeLabel}"`,
-        metadata: { added, removed, edited } });
+      if (added.length > 0 || removed.length > 0 || edited.length > 0) {
+        entries.push({ action: 'subflow_edit', target: key, description: `Sub-fluxo editado: "${nodeLabel}"`,
+          metadata: { added, removed, edited } });
+      }
     }
   }
   return entries;
@@ -713,22 +708,12 @@ const server = http.createServer(async (req, res) => {
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(merged);
         if (serverDoc) {
-          const hasBaseline = !!body.auditBaseline;
           const auditBefore = body.auditBaseline || serverDoc;
-          // Debug: loga diferenças de subflows entre auditBefore e merged
-          const bSfDebug = auditBefore.subflows || {};
-          const aSfDebug = merged.subflows || {};
-          for (const k of new Set([...Object.keys(bSfDebug), ...Object.keys(aSfDebug)])) {
-            if (JSON.stringify(bSfDebug[k] || null) !== JSON.stringify(aSfDebug[k] || null)) {
-              const bStepsD = (bSfDebug[k]?.steps || []);
-              const aStepsD = (aSfDebug[k]?.steps || []);
-              console.log(`[audit-debug] subflow ${k}: hasBaseline=${hasBaseline} bSteps=${bStepsD.length} aSteps=${aStepsD.length}`);
-              bStepsD.forEach((s, i) => console.log(`  [audit-debug] bStep[${i}] id=${s.id} title=${JSON.stringify(s.title)} desc=${JSON.stringify((s.desc||'').slice(0,40))} owner=${JSON.stringify(s.owner)}`));
-              aStepsD.forEach((s, i) => console.log(`  [audit-debug] aStep[${i}] id=${s.id} title=${JSON.stringify(s.title)} desc=${JSON.stringify((s.desc||'').slice(0,40))} owner=${JSON.stringify(s.owner)}`));
-            }
-          }
           const changes = diffDocs(auditBefore, merged);
-          if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
+          if (changes.length > 0) {
+            await db.batchLogAudit(effectiveBy, changes);
+            notifyMainClients('audit_new', null);
+          }
         }
       } else {
         await db.saveLiveDoc(body);
