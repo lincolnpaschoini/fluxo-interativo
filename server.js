@@ -203,8 +203,43 @@ function diffDocs(before, after) {
           if (removedLinks.length) stepChanges.push({ type: 'links_removed', links: removedLinks.map(l => ({ label: l.label, url: l.url })) });
           if (changedLinks.length) stepChanges.push({ type: 'links_changed', links: changedLinks.map(l => ({ label: l.label, url: l.url })) });
 
-          if (JSON.stringify(bs.subSteps || []) !== JSON.stringify(as_.subSteps || []))
-            stepChanges.push({ type: 'substeps' });
+          // Sub-etapas (3° nível): diff detalhado
+          const bSubs = bs.subSteps || [], aSubs = as_.subSteps || [];
+          if (JSON.stringify(bSubs) !== JSON.stringify(aSubs)) {
+            const bSubMap = Object.fromEntries(bSubs.map((s, i) => [s.id || `_${i}`, s]));
+            const aSubMap = Object.fromEntries(aSubs.map((s, i) => [s.id || `_${i}`, s]));
+            const addedSubs = [], removedSubs = [], editedSubs = [];
+            for (const k of new Set([...Object.keys(bSubMap), ...Object.keys(aSubMap)])) {
+              const bss = bSubMap[k], ass = aSubMap[k];
+              if (!bss && ass) {
+                addedSubs.push({ title: ass.title || 'Nova sub-etapa', desc: ass.desc ? stripHtml(ass.desc).slice(0, 150) : null });
+              } else if (bss && !ass) {
+                removedSubs.push({ title: bss.title || 'Sub-etapa' });
+              } else if (bss && ass && JSON.stringify(bss) !== JSON.stringify(ass)) {
+                const sc = [];
+                if (bss.title !== ass.title) sc.push({ type: 'title', before: bss.title || '', after: ass.title || '' });
+                if (bss.desc !== ass.desc) { const p = stripHtml(ass.desc).slice(0, 150); sc.push({ type: 'desc', after: p || null }); }
+                if ((bss.owner || '') !== (ass.owner || '')) sc.push({ type: 'owner', before: bss.owner || '', after: ass.owner || '' });
+                if ((bss.duration || '') !== (ass.duration || '')) sc.push({ type: 'duration', before: bss.duration || '', after: ass.duration || '' });
+                const bImgMapSub = Object.fromEntries((bss.images || []).map(i => [i.id, i]));
+                const aImgMapSub = Object.fromEntries((ass.images || []).map(i => [i.id, i]));
+                const addedImgsSub   = (ass.images || []).filter(i => !bImgMapSub[i.id]);
+                const removedImgsSub = (bss.images || []).filter(i => !aImgMapSub[i.id]);
+                if (addedImgsSub.length)   sc.push({ type: 'images_added',   images: addedImgsSub.map(i   => ({ url: safeUrl(i.url), caption: i.caption || '' })) });
+                if (removedImgsSub.length) sc.push({ type: 'images_removed', images: removedImgsSub.map(i => ({ url: safeUrl(i.url), caption: i.caption || '' })) });
+                const bLinkMapSub = Object.fromEntries((bss.links || []).map(l => [l.id, l]));
+                const aLinkMapSub = Object.fromEntries((ass.links || []).map(l => [l.id, l]));
+                const addedLinksSub   = (ass.links || []).filter(l => !bLinkMapSub[l.id]);
+                const removedLinksSub = (bss.links || []).filter(l => !aLinkMapSub[l.id]);
+                const changedLinksSub = (ass.links || []).filter(l => bLinkMapSub[l.id] && JSON.stringify(bLinkMapSub[l.id]) !== JSON.stringify(l));
+                if (addedLinksSub.length)   sc.push({ type: 'links_added',   links: addedLinksSub.map(l   => ({ label: l.label, url: l.url })) });
+                if (removedLinksSub.length) sc.push({ type: 'links_removed', links: removedLinksSub.map(l => ({ label: l.label, url: l.url })) });
+                if (changedLinksSub.length) sc.push({ type: 'links_changed', links: changedLinksSub.map(l => ({ label: l.label, url: l.url })) });
+                editedSubs.push({ title: bss.title || 'Sub-etapa', changes: sc });
+              }
+            }
+            stepChanges.push({ type: 'substeps', added: addedSubs, removed: removedSubs, edited: editedSubs });
+          }
 
           edited.push({ title: bs.title || 'Etapa', changes: stepChanges });
         }

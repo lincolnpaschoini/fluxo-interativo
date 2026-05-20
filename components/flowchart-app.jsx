@@ -1664,7 +1664,37 @@ function AuditModal({ onClose }) {
                             if (ch.type === 'duration') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Duração: <span style={{ color: '#a52828' }}>"{ch.before || '—'}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after || '—'}"</span></div>;
                             if (ch.type === 'color')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Cor: {ch.before} → {ch.after}</div>;
                             if (ch.type === 'hasSubflow') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· 3° nível: {ch.after ? <span style={{ color: '#3d8c4d' }}>ativado</span> : <span style={{ color: '#a52828' }}>desativado</span>}</div>;
-                            if (ch.type === 'substeps') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Sub-etapas alteradas</div>;
+                            if (ch.type === 'substeps') return (
+                              <div key={j} style={{ paddingLeft: 12, marginTop: 2 }}>
+                                {ch.added && ch.added.map((s, k) => (
+                                  <div key={k} style={{ fontSize: 12, color: '#3d8c4d' }}>
+                                    + Sub-etapa: <strong>"{s.title}"</strong>
+                                    {s.desc && <div style={{ paddingLeft: 12, fontStyle: 'italic', color: '#555', fontSize: 11.5 }}>"{s.desc}"</div>}
+                                  </div>
+                                ))}
+                                {ch.removed && ch.removed.map((s, k) => (
+                                  <div key={k} style={{ fontSize: 12, color: '#a52828' }}>− Sub-etapa: <strong>"{s.title}"</strong></div>
+                                ))}
+                                {ch.edited && ch.edited.map((s, k) => (
+                                  <div key={k} style={{ fontSize: 12, color: '#1f5dbb' }}>
+                                    ✎ Sub-etapa: <strong>"{s.title}"</strong>
+                                    {s.changes && s.changes.map((c, l) => (
+                                      <div key={l} style={{ paddingLeft: 12, color: '#555', fontSize: 11.5 }}>
+                                        {c.type === 'title'    && <span>· Título: <span style={{color:'#a52828'}}>"{c.before}"</span> → <span style={{color:'#3d8c4d'}}>"{c.after}"</span></span>}
+                                        {c.type === 'desc'     && <span>· Descrição: {c.after ? <em>"{c.after}"</em> : 'alterada'}</span>}
+                                        {c.type === 'owner'    && <span>· Responsável: <span style={{color:'#a52828'}}>"{c.before||'—'}"</span> → <span style={{color:'#3d8c4d'}}>"{c.after||'—'}"</span></span>}
+                                        {c.type === 'duration' && <span>· Duração: <span style={{color:'#a52828'}}>"{c.before||'—'}"</span> → <span style={{color:'#3d8c4d'}}>"{c.after||'—'}"</span></span>}
+                                        {(c.type === 'images_added' || c.type === 'images_removed') && (() => { const isAdd = c.type === 'images_added'; return <span style={{color: isAdd ? '#3d8c4d' : '#a52828'}}>· {isAdd ? `+${c.images.length} imagem(ns) adicionada(s)` : `−${c.images.length} imagem(ns) removida(s)`}</span>; })()}
+                                        {(c.type === 'links_added' || c.type === 'links_removed' || c.type === 'links_changed') && (() => { const clr = {links_added:'#3d8c4d',links_removed:'#a52828',links_changed:'#1f5dbb'}[c.type]; const lbl = {links_added:`+${c.links.length} link(s) adicionado(s)`,links_removed:`−${c.links.length} link(s) removido(s)`,links_changed:`✎ ${c.links.length} link(s) alterado(s)`}[c.type]; return <span style={{color:clr}}>· {lbl}</span>; })()}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                                {!ch.added?.length && !ch.removed?.length && !ch.edited?.length && (
+                                  <span style={{ color: '#888', fontSize: 12 }}>· Sub-etapas alteradas</span>
+                                )}
+                              </div>
+                            );
                             if (ch.type === 'images_added' || ch.type === 'images_removed') {
                               const isAdd = ch.type === 'images_added';
                               return (
