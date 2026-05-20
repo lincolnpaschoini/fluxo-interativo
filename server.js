@@ -167,16 +167,21 @@ function diffDocs(before, after) {
           removed.push(detail);
         } else if (bs && as_ && JSON.stringify(bs) !== JSON.stringify(as_)) {
           const stepChanges = [];
+          const stripHtml = (s) => (s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (bs.title !== as_.title)
             stepChanges.push({ type: 'title', before: bs.title || '', after: as_.title || '' });
-          if (bs.desc  !== as_.desc)
-            stepChanges.push({ type: 'desc' });
+          if (bs.desc !== as_.desc) {
+            const preview = stripHtml(as_.desc).slice(0, 200);
+            stepChanges.push({ type: 'desc', after: preview || null });
+          }
           if ((bs.owner || '') !== (as_.owner || ''))
             stepChanges.push({ type: 'owner', before: bs.owner || '', after: as_.owner || '' });
           if ((bs.duration || '') !== (as_.duration || ''))
             stepChanges.push({ type: 'duration', before: bs.duration || '', after: as_.duration || '' });
           if (bs.color !== as_.color)
             stepChanges.push({ type: 'color', before: bs.color, after: as_.color });
+          if ((bs.hasSubflow || false) !== (as_.hasSubflow || false))
+            stepChanges.push({ type: 'hasSubflow', after: as_.hasSubflow || false });
 
           // Images: diff by id
           const bImgMap = Object.fromEntries((bs.images || []).map(i => [i.id, i]));

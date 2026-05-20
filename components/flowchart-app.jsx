@@ -1653,14 +1653,17 @@ function AuditModal({ onClose }) {
                       })}
                       {meta.edited  && meta.edited.length > 0 && meta.edited.map((e, i) => (
                         <div key={i} style={{ marginBottom: 8 }}>
-                          <div style={{ fontWeight: 600, color: '#1f5dbb' }}>✎ {typeof e === 'string' ? e : e.title}</div>
+                          <div style={{ fontWeight: 600, color: '#1f5dbb' }}>✎ {typeof e === 'string' ? e : e.title}
+                            {typeof e !== 'string' && (!e.changes || e.changes.length === 0) && <span style={{ fontWeight: 400, color: '#888', fontSize: 11, marginLeft: 6 }}>(campos internos alterados)</span>}
+                          </div>
                           {typeof e !== 'string' && e.changes && e.changes.map((ch, j) => {
                             if (typeof ch === 'string') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· {ch}</div>;
                             if (ch.type === 'title')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Título: <span style={{ color: '#a52828' }}>"{ch.before}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after}"</span></div>;
-                            if (ch.type === 'desc')     return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição alterada</div>;
+                            if (ch.type === 'desc')     return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Descrição: {ch.after ? <span style={{ fontStyle: 'italic', color: '#3a3a35' }}>"{ch.after}{ch.after.length >= 200 ? '…' : ''}"</span> : <span style={{ color: '#888' }}>alterada</span>}</div>;
                             if (ch.type === 'owner')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Responsável: <span style={{ color: '#a52828' }}>"{ch.before || '—'}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after || '—'}"</span></div>;
                             if (ch.type === 'duration') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Duração: <span style={{ color: '#a52828' }}>"{ch.before || '—'}"</span> → <span style={{ color: '#3d8c4d' }}>"{ch.after || '—'}"</span></div>;
                             if (ch.type === 'color')    return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Cor: {ch.before} → {ch.after}</div>;
+                            if (ch.type === 'hasSubflow') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· 3° nível: {ch.after ? <span style={{ color: '#3d8c4d' }}>ativado</span> : <span style={{ color: '#a52828' }}>desativado</span>}</div>;
                             if (ch.type === 'substeps') return <div key={j} style={{ paddingLeft: 12, color: '#555', fontSize: 12 }}>· Sub-etapas alteradas</div>;
                             if (ch.type === 'images_added' || ch.type === 'images_removed') {
                               const isAdd = ch.type === 'images_added';
