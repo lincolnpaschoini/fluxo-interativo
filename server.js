@@ -689,9 +689,9 @@ const server = http.createServer(async (req, res) => {
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(merged);
-        // Audita ao fechar o modal (baseline enviado pelo cliente) ou na ausência de baseline
-        // skipAudit=true é enviado nos syncs intermediários enquanto o modal está aberto
-        if (serverDoc && !body.skipAudit) {
+        if (serverDoc) {
+          // Se o cliente enviou um baseline (ao fechar o modal com Save), usa-o como estado "antes"
+          // Caso contrário, usa o serverDoc (comportamento padrão para edições fora de modal)
           const auditBefore = body.auditBaseline || serverDoc;
           const changes = diffDocs(auditBefore, merged);
           if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }

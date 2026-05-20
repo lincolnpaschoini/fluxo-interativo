@@ -1951,7 +1951,6 @@ function App() {
   const flushDocSync = (beacon = false, opts = {}) => {
     clearTimeout(syncTimer.current);
     const base = buildDocPayload();
-    if (opts.skipAudit)     base.skipAudit     = true;
     if (opts.auditBaseline) base.auditBaseline = opts.auditBaseline;
     const payload = JSON.stringify(base);
     if (beacon && navigator.sendBeacon) {
@@ -1967,10 +1966,9 @@ function App() {
     }
   };
   const debouncedDocSync = () => {
+    if (modalSessionRef.current) return; // Não sincroniza com o banco durante sessão de edição do modal
     clearTimeout(syncTimer.current);
-    // Enquanto o modal está aberto, sincroniza sem gerar auditoria (será gerada ao fechar)
-    const skipAudit = modalSessionRef.current;
-    syncTimer.current = setTimeout(() => flushDocSync(false, { skipAudit }), 800);
+    syncTimer.current = setTimeout(() => flushDocSync(false), 800);
   };
 
   // Garante sync antes de fechar/recarregar a página
@@ -1981,24 +1979,36 @@ function App() {
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
 
-  // Captura baseline ao abrir modal de subfluxo e gera UMA entrada de auditoria ao fechar
+  // Captura baseline ao abrir o modal de subfluxo; limpa refs se fechar por outra via
   React.useEffect(() => {
     if (!IS_ADMIN || SIMULATE_AS || PUBLISHED_SLUG) return;
     if (openNodeId && !modalSessionRef.current) {
-      // Modal abriu — tira snapshot do estado atual como baseline
       let subflows = {};
       try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(e) {}
       auditBaselineRef.current = { nodes: nodesRef.current, edges: edgesRef.current, subflows };
       modalSessionRef.current = true;
     } else if (!openNodeId && modalSessionRef.current) {
-      // Modal fechou — cancela sync pendente e faz sync final com baseline para gerar 1 registro
-      const baseline = auditBaselineRef.current;
+      // Fechado sem passar por handleNodeModalClose (ex: enterEditor) — só limpa refs
       modalSessionRef.current = false;
       auditBaselineRef.current = null;
       clearTimeout(syncTimer.current);
-      flushDocSync(false, { auditBaseline: baseline });
     }
   }, [openNodeId]);
+
+  // Chamado pelo NodeModal com shouldSave=true (Salvar) ou false (Descartar)
+  const handleNodeModalClose = (shouldSave) => {
+    const baseline = auditBaselineRef.current;
+    modalSessionRef.current = false;
+    auditBaselineRef.current = null;
+    clearTimeout(syncTimer.current);
+    if (shouldSave && baseline) {
+      flushDocSync(false, { auditBaseline: baseline });
+    } else if (!shouldSave && baseline?.subflows) {
+      // Reverte localStorage ao estado anterior à edição
+      try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(baseline.subflows)); } catch(e) {}
+    }
+    setOpenNodeId(null);
+  };
 
   // Carrega o último slug publicado do banco (para não perder referência entre sessões/dispositivos)
   React.useEffect(() => {
@@ -2643,7 +2653,7 @@ function App() {
       {openNode && (
         <NodeModal node={openNode} popupStyle={t.popupStyle}
                    editorMode={editorMode || canEditNode(openNode)}
-                   onClose={() => setOpenNodeId(null)}
+                   onClose={handleNodeModalClose}
                    onRequestAccess={!IS_ADMIN && !PUBLISHED_SLUG && !canEditNode(openNode) ? requestAccess : undefined}
                    requestStatus={myRequests[openNode?.id]}
                    onSubflowChange={IS_ADMIN && !SIMULATE_AS ? debouncedDocSync : undefined} />

@@ -247,6 +247,8 @@ function ThirdLevelModal({ step, editorMode, onClose, onSave }) {
       ? step.subSteps
       : [{ id: 'ss1', title: 'Sub-etapa 1', desc: '', color: step.color || 'blue', owner: '', duration: '' }]
   );
+  const openedSubStepsRef   = React.useRef(JSON.parse(JSON.stringify(step.subSteps || [])));
+  const [showSaveConfirm, setShowSaveConfirm] = React.useState(false);
 
   const updateSub = (i, patch) =>
     setSubSteps((ss) => ss.map((s, j) => j === i ? { ...s, ...patch } : s));
@@ -281,15 +283,18 @@ function ThirdLevelModal({ step, editorMode, onClose, onSave }) {
   };
 
   const handleClose = () => {
-    if (editorMode) onSave(subSteps);
-    onClose();
+    if (!editorMode) { onClose(); return; }
+    const hasChanges = JSON.stringify(subSteps) !== JSON.stringify(openedSubStepsRef.current);
+    if (hasChanges) { setShowSaveConfirm(true); } else { onClose(); }
   };
+  const handleSave    = () => { onSave(subSteps); onClose(); };
+  const handleDiscard = () => { setShowSaveConfirm(false); onClose(); };
 
   React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') handleClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !showSaveConfirm) handleClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [subSteps]);
+  }, [subSteps, showSaveConfirm]);
 
   const arrow = (
     <div className="sf-arrow" aria-hidden="true">
@@ -410,6 +415,31 @@ function ThirdLevelModal({ step, editorMode, onClose, onSave }) {
           </div>
         </div>
       </div>
+      {showSaveConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', background: 'rgba(0,0,0,0.45)' }}
+             onClick={(e) => e.stopPropagation()}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '28px 32px', maxWidth: 360,
+                        width: '90%', textAlign: 'center', boxShadow: '0 8px 32px rgba(0,0,0,0.22)' }}>
+            <p style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#222' }}>Salvar alterações?</p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#666', lineHeight: 1.5 }}>
+              Você fez alterações nas sub-etapas. Deseja salvar antes de fechar?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button onClick={handleDiscard}
+                      style={{ padding: '8px 18px', borderRadius: 6, border: '1.5px solid #d0d0d0',
+                               background: '#f5f5f5', color: '#555', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+                Não, descartar
+              </button>
+              <button onClick={handleSave}
+                      style={{ padding: '8px 18px', borderRadius: 6, border: 'none',
+                               background: '#1f5dbb', color: '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                Sim, salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -664,6 +694,8 @@ function SubflowViewer({ subflow }) {
 function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAccess, requestStatus, onSubflowChange }) {
   const [allSubflows, setAllSubflows] = React.useState(loadSubflows);
   const subflow = allSubflows[node?.id] || makeEmptySubflow(node?.color);
+  const openedSubflowRef = React.useRef(JSON.parse(JSON.stringify(allSubflows[node?.id] || null)));
+  const [showSaveConfirm, setShowSaveConfirm] = React.useState(false);
 
   const updateSubflow = (next) => {
     const all = { ...allSubflows, [node.id]: next };
@@ -672,11 +704,19 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     onSubflowChange?.();
   };
 
+  const handleCloseRequest = () => {
+    if (showSaveConfirm) return;
+    if (!editorMode) { onClose(false); return; }
+    const current = allSubflows[node?.id] || null;
+    const hasChanges = JSON.stringify(current) !== JSON.stringify(openedSubflowRef.current);
+    if (hasChanges) { setShowSaveConfirm(true); } else { onClose(false); }
+  };
+
   React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') handleCloseRequest(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [allSubflows, showSaveConfirm]);
 
   // Recarrega subflows do localStorage quando outro usuário salva via SSE
   React.useEffect(() => {
@@ -725,7 +765,7 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
         ? 'Edite as etapas abaixo. As alterações ficam salvas no seu navegador.'
         : 'Sub-fluxograma desta etapa. Clique nas etapas marcadas para ver o 3° nível.'}</p>
       {requestBtn}
-      <button className="sf-close" onClick={onClose} aria-label="Fechar">×</button>
+      <button className="sf-close" onClick={handleCloseRequest} aria-label="Fechar">×</button>
     </div>
   );
 
@@ -733,13 +773,40 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     ? <SubflowEditor node={node} subflow={subflow} onChange={updateSubflow} />
     : <SubflowViewer subflow={subflow} />;
 
+  const saveConfirmDialog = showSaveConfirm && (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', background: 'rgba(0,0,0,0.45)' }}
+         onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: '28px 32px', maxWidth: 360,
+                    width: '90%', textAlign: 'center', boxShadow: '0 8px 32px rgba(0,0,0,0.22)' }}>
+        <p style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#222' }}>Salvar alterações?</p>
+        <p style={{ margin: '0 0 20px', fontSize: 13, color: '#666', lineHeight: 1.5 }}>
+          Você fez alterações neste subfluxo. Deseja salvar antes de fechar?
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button onClick={() => { setShowSaveConfirm(false); onClose(false); }}
+                  style={{ padding: '8px 18px', borderRadius: 6, border: '1.5px solid #d0d0d0',
+                           background: '#f5f5f5', color: '#555', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+            Não, descartar
+          </button>
+          <button onClick={() => { setShowSaveConfirm(false); onClose(true); }}
+                  style={{ padding: '8px 18px', borderRadius: 6, border: 'none',
+                           background: '#1f5dbb', color: '#fff', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+            Sim, salvar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (popupStyle === 'drawer') {
     return (
-      <div className="sf-drawer-overlay" onClick={onClose}>
+      <div className="sf-drawer-overlay" onClick={handleCloseRequest}>
         <div className="sf-drawer" onClick={(e) => e.stopPropagation()}
              style={{ borderLeft: `4px solid ${color.stroke}` }}>
           {header}
           {body}
+          {saveConfirmDialog}
         </div>
       </div>
     );
@@ -748,23 +815,25 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     return (
       <div className="sf-drill">
         <div className="sf-drill-bar">
-          <button className="sf-back" onClick={onClose}>← Voltar ao fluxograma</button>
+          <button className="sf-back" onClick={handleCloseRequest}>← Voltar ao fluxograma</button>
           <div className="sf-drill-crumb">{title}</div>
         </div>
         <div className="sf-drill-body">
           {header}
           {body}
+          {saveConfirmDialog}
         </div>
       </div>
     );
   }
   // default: modal
   return (
-    <div className="sf-modal-overlay" onClick={onClose}>
+    <div className="sf-modal-overlay" onClick={handleCloseRequest}>
       <div className="sf-modal" onClick={(e) => e.stopPropagation()}
            style={{ borderTop: `5px solid ${color.stroke}` }}>
         {header}
         {body}
+        {saveConfirmDialog}
       </div>
     </div>
   );
