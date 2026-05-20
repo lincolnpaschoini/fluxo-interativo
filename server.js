@@ -161,6 +161,10 @@ function diffDocs(before, after) {
     } else if (bSf[key] && aSf[key] && JSON.stringify(bSf[key]) !== JSON.stringify(aSf[key])) {
       const bSteps = bSf[key]?.steps || [];
       const aSteps = aSf[key]?.steps || [];
+      // Debug: loga chaves fora de 'steps' que diferem
+      const bOther = Object.fromEntries(Object.entries(bSf[key]).filter(([k]) => k !== 'steps'));
+      const aOther = Object.fromEntries(Object.entries(aSf[key]).filter(([k]) => k !== 'steps'));
+      if (JSON.stringify(bOther) !== JSON.stringify(aOther)) console.log(`[audit-debug] subflow ${key} difere fora de steps: b=${JSON.stringify(bOther)} a=${JSON.stringify(aOther)}`);
       const bMap = Object.fromEntries(bSteps.map((s, i) => [s.id || `_${i}`, s]));
       const aMap = Object.fromEntries(aSteps.map((s, i) => [s.id || `_${i}`, s]));
       const added = [], removed = [], edited = [];
@@ -709,9 +713,20 @@ const server = http.createServer(async (req, res) => {
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(merged);
         if (serverDoc) {
-          // Se o cliente enviou um baseline (ao fechar o modal com Save), usa-o como estado "antes"
-          // Caso contrário, usa o serverDoc (comportamento padrão para edições fora de modal)
+          const hasBaseline = !!body.auditBaseline;
           const auditBefore = body.auditBaseline || serverDoc;
+          // Debug: loga diferenças de subflows entre auditBefore e merged
+          const bSfDebug = auditBefore.subflows || {};
+          const aSfDebug = merged.subflows || {};
+          for (const k of new Set([...Object.keys(bSfDebug), ...Object.keys(aSfDebug)])) {
+            if (JSON.stringify(bSfDebug[k] || null) !== JSON.stringify(aSfDebug[k] || null)) {
+              const bStepsD = (bSfDebug[k]?.steps || []);
+              const aStepsD = (aSfDebug[k]?.steps || []);
+              console.log(`[audit-debug] subflow ${k}: hasBaseline=${hasBaseline} bSteps=${bStepsD.length} aSteps=${aStepsD.length}`);
+              bStepsD.forEach((s, i) => console.log(`  [audit-debug] bStep[${i}] id=${s.id} title=${JSON.stringify(s.title)} desc=${JSON.stringify((s.desc||'').slice(0,40))} owner=${JSON.stringify(s.owner)}`));
+              aStepsD.forEach((s, i) => console.log(`  [audit-debug] aStep[${i}] id=${s.id} title=${JSON.stringify(s.title)} desc=${JSON.stringify((s.desc||'').slice(0,40))} owner=${JSON.stringify(s.owner)}`));
+            }
+          }
           const changes = diffDocs(auditBefore, merged);
           if (changes.length > 0) { db.batchLogAudit(effectiveBy, changes); notifyMainClients('audit_new', null); }
         }
