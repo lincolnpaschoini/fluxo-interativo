@@ -718,7 +718,7 @@ const server = http.createServer(async (req, res) => {
       } else {
         await db.saveLiveDoc(body);
       }
-      notifyMainClients('doc_updated', { by: effectiveBy });
+      notifyMainClients('doc_updated', { by: effectiveBy, tabId: body._tabId || null });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;

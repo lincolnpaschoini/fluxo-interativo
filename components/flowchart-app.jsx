@@ -28,6 +28,7 @@ const DEFAULT_LEGEND_CONFIG = { style: 'chip', fontSize: 13, fontFamily: '', ali
 const CURRENT_USER   = window.__CURRENT_USER__   || null;
 const IS_ADMIN       = CURRENT_USER?.isAdmin      || false;
 const SIMULATE_AS    = window.__SIMULATE_AS__    || null;
+const TAB_ID         = Math.random().toString(36).slice(2); // ID único por aba — distingue "eu salvei" de "outra aba minha salvou"
 
 function canEditNode(node) {
   if (IS_ADMIN) return true;
@@ -1942,6 +1943,7 @@ function App() {
       _baseNodes:    base ? base.nodes    : null,
       _baseEdges:    base ? base.edges    : null,
       _baseSubflows: base ? base.subflows : null,
+      _tabId: TAB_ID,
     };
   };
 
@@ -2065,11 +2067,12 @@ function App() {
 
     const es = new EventSource('/api/events/__main__');
 
-    // Alguém salvou → atualiza doc completo; ignora apenas a própria atualização
+    // Alguém salvou → atualiza doc completo; ignora somente SE for esta mesma aba
+    // (outras abas do mesmo usuário DEVEM receber a atualização)
     es.addEventListener('doc_updated', (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (!SIMULATE_AS && data.by === CURRENT_USER?.email) return;
+        if (data.tabId && data.tabId === TAB_ID) return;
       } catch (_) {}
       applyLiveDoc();
     });
