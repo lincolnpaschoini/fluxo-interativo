@@ -488,6 +488,29 @@ function NodeInspector({ node, onChange, onDelete, onConnect, onEditSubflow, onD
   // isLegend nodes default to no-subflow (they're decorative labels)
   const hasSub = !node.isLegend && node.hasSubflow !== false && !isDecorative;
   const tfs = node.fontSize || (node.shape === 'zone' ? 12 : 14);
+
+  // ── State LOCAL para inputs de texto (evita reverter texto durante digitacao por re-render externo) ──
+  // Sincroniza com o node prop SOMENTE quando o nó selecionado MUDA (outro node.id), nao a cada keystroke.
+  const [localLabel,  setLocalLabel]  = React.useState(node.label || '');
+  const [localPeriod, setLocalPeriod] = React.useState(node.period || '');
+  const prevNodeIdRef = React.useRef(node.id);
+  React.useEffect(() => {
+    if (prevNodeIdRef.current !== node.id) {
+      prevNodeIdRef.current = node.id;
+      setLocalLabel(node.label || '');
+      setLocalPeriod(node.period || '');
+    }
+  }, [node.id, node.label, node.period]);
+
+  const onLabelInput = (e) => {
+    setLocalLabel(e.target.value);
+    onChange({ label: e.target.value });
+  };
+  const onPeriodInput = (e) => {
+    setLocalPeriod(e.target.value);
+    onChange({ period: e.target.value });
+  };
+
   return (
     <div className="inspector">
       <div className="inspector-hd">
@@ -497,15 +520,15 @@ function NodeInspector({ node, onChange, onDelete, onConnect, onEditSubflow, onD
       <div className="inspector-body">
         <label className="ins-row">
           <span>Texto</span>
-          <textarea value={node.label} rows="4"
-                    onChange={(e) => onChange({ label: e.target.value })}
+          <textarea value={localLabel} rows="4"
+                    onChange={onLabelInput}
                     placeholder="Nome da etapa (use Enter para quebrar linha)" />
         </label>
 
         {!isDecorative && (
           <div className="ins-row">
             <span>Período</span>
-            <input value={node.period || ''} onChange={(e) => onChange({ period: e.target.value })}
+            <input value={localPeriod} onChange={onPeriodInput}
                    placeholder="Ex: 2 dias, 1 semana..." style={{ marginBottom: 6 }} />
             {node.period && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
