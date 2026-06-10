@@ -2680,10 +2680,17 @@ function App() {
     modalSessionRef.current = false;
     auditBaselineRef.current = null;
     clearTimeout(syncTimer.current);
-    if (shouldSave && baseline) {
-      flushDocSync(false, { auditBaseline: baseline });
-    } else if (!shouldSave && baseline?.subflows) {
-      // Reverte localStorage ao estado anterior à edição
+    if (shouldSave) {
+      // Admin: usa flushDocSync com baseline (gera audit + sincroniza live_doc)
+      if (IS_ADMIN && !SIMULATE_AS && baseline) {
+        flushDocSync(false, { auditBaseline: baseline });
+      } else if (!PUBLISHED_SLUG) {
+        // Usuario comum (ou admin simulando): forca persistencia imediata via quickSave
+        // (salva backup + sincroniza live_doc com os subflows atuais do localStorage)
+        try { quickSave(); } catch (_) {}
+      }
+    } else if (baseline?.subflows) {
+      // Descartar: reverte subflows do localStorage ao estado de quando o modal foi aberto
       try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(baseline.subflows)); } catch(e) {}
     }
     setOpenNodeId(null);

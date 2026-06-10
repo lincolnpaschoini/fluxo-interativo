@@ -5,6 +5,39 @@
 
 const SUBFLOW_STORAGE_KEY = 'fluxograma:subflows:v1';
 
+// StableInput: input controlado que NAO aceita mudancas externas enquanto esta com foco.
+// Evita reverter o que o usuario digitou quando o pai re-renderiza (SSE, autosave, etc).
+function StableInput({ value, onChange, ...rest }) {
+  const [local, setLocal] = React.useState(value || '');
+  const focusedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!focusedRef.current && (value || '') !== local) setLocal(value || '');
+  }, [value]);
+  return React.createElement('input', {
+    ...rest,
+    value: local,
+    onFocus: (e) => { focusedRef.current = true; rest.onFocus && rest.onFocus(e); },
+    onBlur:  (e) => { focusedRef.current = false; rest.onBlur && rest.onBlur(e); },
+    onChange: (e) => { setLocal(e.target.value); onChange(e); },
+  });
+}
+
+// StableTextarea: idem para textareas (titulo de etapa pode ser textarea)
+function StableTextarea({ value, onChange, ...rest }) {
+  const [local, setLocal] = React.useState(value || '');
+  const focusedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!focusedRef.current && (value || '') !== local) setLocal(value || '');
+  }, [value]);
+  return React.createElement('textarea', {
+    ...rest,
+    value: local,
+    onFocus: (e) => { focusedRef.current = true; rest.onFocus && rest.onFocus(e); },
+    onBlur:  (e) => { focusedRef.current = false; rest.onBlur && rest.onBlur(e); },
+    onChange: (e) => { setLocal(e.target.value); onChange(e); },
+  });
+}
+
 function loadSubflows() {
   try { return JSON.parse(localStorage.getItem(SUBFLOW_STORAGE_KEY) || '{}'); }
   catch (e) { return {}; }
@@ -331,15 +364,15 @@ function ThirdLevelModal({ step, editorMode, onClose, onSave }) {
                     )}
                     {editorMode ? (
                       <>
-                        <input className="sf-step-title" value={sub.title}
+                        <StableInput className="sf-step-title" value={sub.title}
                                onChange={(e) => updateSub(i, { title: e.target.value })}
                                placeholder="Título da sub-etapa" />
                         <RichTextEditor value={sub.desc || ''}
                                         onChange={(html) => updateSub(i, { desc: html })}
                                         placeholder="Detalhes, responsáveis, ferramentas..." />
                         <div className="sf-step-meta">
-                          <input value={sub.owner || ''} onChange={(e) => updateSub(i, { owner: e.target.value })} placeholder="Responsável" />
-                          <input value={sub.duration || ''} onChange={(e) => updateSub(i, { duration: e.target.value })} placeholder="Prazo" />
+                          <StableInput value={sub.owner || ''} onChange={(e) => updateSub(i, { owner: e.target.value })} placeholder="Responsável" />
+                          <StableInput value={sub.duration || ''} onChange={(e) => updateSub(i, { duration: e.target.value })} placeholder="Prazo" />
                         </div>
                         <div className="sf-step-colors">
                           {COLOR_OPTIONS.map((col) => (
@@ -357,11 +390,11 @@ function ThirdLevelModal({ step, editorMode, onClose, onSave }) {
                         <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', marginTop: 8, paddingTop: 8 }}>
                           {(sub.links || []).map((link, li) => (
                             <div key={link.id || li} style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-                              <input value={link.label} onChange={(e) => updateSubLink(i, li, { label: e.target.value })}
+                              <StableInput value={link.label} onChange={(e) => updateSubLink(i, li, { label: e.target.value })}
                                      placeholder="Nome" style={{ flex: '0 0 110px', fontSize: 11, padding: '3px 6px',
                                      borderRadius: 4, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit',
                                      background: 'rgba(255,255,255,0.7)', minWidth: 0 }} />
-                              <input value={link.url} onChange={(e) => updateSubLink(i, li, { url: e.target.value })}
+                              <StableInput value={link.url} onChange={(e) => updateSubLink(i, li, { url: e.target.value })}
                                      placeholder="https://..." style={{ flex: 1, fontSize: 11, padding: '3px 6px',
                                      borderRadius: 4, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit',
                                      background: 'rgba(255,255,255,0.7)', minWidth: 0 }} />
@@ -518,15 +551,15 @@ function SubflowEditor({ node, subflow, onChange }) {
               <div className="sf-step" style={{ background: c.fill, borderColor: c.stroke, color: c.text }}>
                 <button className="sf-step-x" onClick={() => removeStep(i)}
                         title="Remover etapa" aria-label="Remover etapa">×</button>
-                <input className="sf-step-title" value={step.title}
+                <StableInput className="sf-step-title" value={step.title}
                        onChange={(e) => updateStep(i, { title: e.target.value })}
                        placeholder="Título da etapa" />
                 <RichTextEditor value={step.desc || ''}
                                 onChange={(html) => updateStep(i, { desc: html })}
                                 placeholder="Detalhes, responsáveis, ferramentas..." />
                 <div className="sf-step-meta">
-                  <input value={step.owner || ''} onChange={(e) => updateStep(i, { owner: e.target.value })} placeholder="Responsável" />
-                  <input value={step.duration || ''} onChange={(e) => updateStep(i, { duration: e.target.value })} placeholder="Prazo (ex: 1 dia)" />
+                  <StableInput value={step.owner || ''} onChange={(e) => updateStep(i, { owner: e.target.value })} placeholder="Responsável" />
+                  <StableInput value={step.duration || ''} onChange={(e) => updateStep(i, { duration: e.target.value })} placeholder="Prazo (ex: 1 dia)" />
                 </div>
                 <div className="sf-step-colors">
                   {COLOR_OPTIONS.map((col) => (
@@ -565,11 +598,11 @@ function SubflowEditor({ node, subflow, onChange }) {
                 <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', marginTop: 8, paddingTop: 8 }}>
                   {(step.links || []).map((link, li) => (
                     <div key={link.id || li} style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-                      <input value={link.label} onChange={(e) => updateLink(i, li, { label: e.target.value })}
+                      <StableInput value={link.label} onChange={(e) => updateLink(i, li, { label: e.target.value })}
                              placeholder="Nome" style={{ flex: '0 0 110px', fontSize: 11, padding: '3px 6px',
                              borderRadius: 4, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit',
                              background: 'rgba(255,255,255,0.7)', minWidth: 0 }} />
-                      <input value={link.url} onChange={(e) => updateLink(i, li, { url: e.target.value })}
+                      <StableInput value={link.url} onChange={(e) => updateLink(i, li, { url: e.target.value })}
                              placeholder="https://..." style={{ flex: 1, fontSize: 11, padding: '3px 6px',
                              borderRadius: 4, border: '1px solid rgba(0,0,0,0.2)', fontFamily: 'inherit',
                              background: 'rgba(255,255,255,0.7)', minWidth: 0 }} />
@@ -718,12 +751,17 @@ function NodeModal({ node, onClose, popupStyle, editorMode = true, onRequestAcce
     return () => window.removeEventListener('keydown', onKey);
   }, [allSubflows, showSaveConfirm]);
 
-  // Recarrega subflows do localStorage quando outro usuário salva via SSE
+  // Recarrega subflows do localStorage quando outro usuário salva via SSE.
+  // IMPORTANTE: nao recarrega enquanto o modal esta em modo edicao — evita perder o que o usuario
+  // esta digitando agora por causa de um SSE de doc_updated que pode chegar simultaneamente.
   React.useEffect(() => {
-    const handler = () => setAllSubflows(loadSubflows());
+    const handler = () => {
+      if (editorMode) return; // protege edicoes em curso
+      setAllSubflows(loadSubflows());
+    };
     window.addEventListener('subflows-updated', handler);
     return () => window.removeEventListener('subflows-updated', handler);
-  }, []);
+  }, [editorMode]);
 
   if (!node) return null;
   const color = window.NODE_COLORS[node.color] || window.NODE_COLORS.blue;
