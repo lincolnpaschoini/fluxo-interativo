@@ -37,6 +37,18 @@ async function init() {
         is_admin   BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS environments (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL,
+        logo       TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        created_by TEXT
+      );
+      CREATE TABLE IF NOT EXISTS user_environments (
+        email          TEXT NOT NULL,
+        environment_id INTEGER NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+        PRIMARY KEY (email, environment_id)
+      );
       CREATE TABLE IF NOT EXISTS live_doc (
         id         INTEGER PRIMARY KEY DEFAULT 1,
         data       JSONB NOT NULL,
@@ -81,10 +93,71 @@ async function init() {
       CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs (created_at DESC);
       CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs (actor_email);
     `);
-    // Migration: add metadata column to existing tables
     await client.query(`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSONB`);
 
-    // Remover sessões com mais de 1 ano
+    // ── Multi-ambientes: migrações idempotentes ─────────────────────────────
+    await client.query(`ALTER TABLE live_doc          ADD COLUMN IF NOT EXISTS environment_id INTEGER`);
+    await client.query(`ALTER TABLE published_flows   ADD COLUMN IF NOT EXISTS environment_id INTEGER`);
+    await client.query(`ALTER TABLE backups           ADD COLUMN IF NOT EXISTS environment_id INTEGER`);
+    await client.query(`ALTER TABLE access_requests   ADD COLUMN IF NOT EXISTS environment_id INTEGER`);
+    await client.query(`ALTER TABLE audit_logs        ADD COLUMN IF NOT EXISTS environment_id INTEGER`);
+    await client.query(`ALTER TABLE sessions          ADD COLUMN IF NOT EXISTS current_environment_id INTEGER`);
+
+    const { rowCount: envCount } = await client.query('SELECT 1 FROM environments LIMIT 1');
+    if (!envCount) {
+      await client.query(
+        `INSERT INTO environments (id, name, logo, created_by) VALUES (1, 'Empresa Principal', NULL, 'system')`
+      );
+      await client.query(`SELECT setval('environments_id_seq', GREATEST(1, (SELECT COALESCE(MAX(id),1) FROM environments)))`);
+    }
+
+    await client.query(`UPDATE live_doc        SET environment_id = 1 WHERE environment_id IS NULL`);
+    await client.query(`UPDATE published_flows SET environment_id = 1 WHERE environment_id IS NULL`);
+    await client.query(`UPDATE backups         SET environment_id = 1 WHERE environment_id IS NULL`);
+    await client.query(`UPDATE access_requests SET environment_id = 1 WHERE environment_id IS NULL`);
+
+    const { rows: pkRows } = await client.query(`
+      SELECT a.attname FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'live_doc'::regclass AND i.indisprimary
+    `);
+    const pkCols = pkRows.map(r => r.attname);
+    if (pkCols.length === 1 && pkCols[0] === 'id') {
+      await client.query(`ALTER TABLE live_doc DROP CONSTRAINT live_doc_pkey`);
+      await client.query(`ALTER TABLE live_doc ALTER COLUMN environment_id SET NOT NULL`);
+      await client.query(`ALTER TABLE live_doc ADD CONSTRAINT live_doc_pkey PRIMARY KEY (environment_id)`);
+      try { await client.query(`ALTER TABLE live_doc DROP COLUMN id`); } catch (_) {}
+    }
+
+    await client.query(`
+      INSERT INTO user_environments (email, environment_id)
+      SELECT email, 1 FROM users
+      WHERE NOT EXISTS (SELECT 1 FROM user_environments ue WHERE ue.email = users.email)
+      ON CONFLICT DO NOTHING
+    `);
+
+    await client.query(`UPDATE sessions SET current_environment_id = 1 WHERE current_environment_id IS NULL`);
+
+    // published_flows: PK passa de (slug) para (slug, environment_id) para permitir o mesmo slug em ambientes diferentes
+    const { rows: pubPkRows } = await client.query(`
+      SELECT a.attname FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'published_flows'::regclass AND i.indisprimary
+    `);
+    const pubPkCols = pubPkRows.map(r => r.attname).sort();
+    if (!(pubPkCols.length === 2 && pubPkCols[0] === 'environment_id' && pubPkCols[1] === 'slug')) {
+      try { await client.query(`ALTER TABLE published_flows DROP CONSTRAINT published_flows_pkey`); } catch (_) {}
+      await client.query(`ALTER TABLE published_flows ALTER COLUMN environment_id SET NOT NULL`);
+      await client.query(`ALTER TABLE published_flows ADD CONSTRAINT published_flows_pkey PRIMARY KEY (slug, environment_id)`);
+    }
+
+    await client.query(`CREATE INDEX IF NOT EXISTS published_flows_env_idx ON published_flows (environment_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS published_flows_slug_idx ON published_flows (slug)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS backups_env_idx          ON backups (environment_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS access_requests_env_idx  ON access_requests (environment_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS audit_logs_env_idx       ON audit_logs (environment_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS user_environments_email_idx ON user_environments (email)`);
+
     await client.query(`DELETE FROM sessions WHERE created_at < NOW() - INTERVAL '1 year'`);
 
     await _migrateFromFiles(client);
@@ -128,7 +201,6 @@ async function _migrateFromFiles(client) {
         console.log('>>> DB: usuários migrados de users.json');
       } catch (e) { console.log('>>> DB: erro ao migrar users.json:', e.message); }
     }
-    // Garantir admin padrão
     const { rowCount } = await client.query('SELECT 1 FROM users LIMIT 1');
     if (!rowCount) {
       await client.query(
@@ -148,7 +220,7 @@ async function _migrateFromFiles(client) {
       try {
         const data = JSON.parse(fs.readFileSync(src, 'utf8'));
         await client.query(
-          'INSERT INTO live_doc (id, data) VALUES (1, $1) ON CONFLICT DO NOTHING',
+          'INSERT INTO live_doc (environment_id, data) VALUES (1, $1) ON CONFLICT DO NOTHING',
           [JSON.stringify(data)]
         );
         console.log('>>> DB: live doc migrado de', path.basename(src));
@@ -167,7 +239,7 @@ async function _migrateFromFiles(client) {
           const slug = file.replace('.json', '');
           const data = JSON.parse(fs.readFileSync(path.join(publishedDir, file), 'utf8'));
           await client.query(
-            'INSERT INTO published_flows (slug, data) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            'INSERT INTO published_flows (slug, environment_id, data) VALUES ($1, 1, $2) ON CONFLICT DO NOTHING',
             [slug, JSON.stringify(data)]
           );
         } catch (e) { /* ignora arquivo corrompido */ }
@@ -187,7 +259,7 @@ async function _migrateFromFiles(client) {
           const data = JSON.parse(fs.readFileSync(path.join(backupDir, file), 'utf8'));
           const { mtime } = fs.statSync(path.join(backupDir, file));
           await client.query(
-            'INSERT INTO backups (filename, data, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+            'INSERT INTO backups (filename, environment_id, data, created_at) VALUES ($1, 1, $2, $3) ON CONFLICT DO NOTHING',
             [file, JSON.stringify(data), mtime]
           );
         } catch (e) { /* ignora arquivo corrompido */ }
@@ -223,9 +295,18 @@ async function _migrateFromFiles(client) {
 
 async function loadUsers() {
   const { rows } = await pool.query('SELECT email, name, is_admin FROM users ORDER BY created_at');
+  const { rows: ueRows } = await pool.query('SELECT email, environment_id FROM user_environments');
+  const userEnvMap = {};
+  for (const r of ueRows) {
+    (userEnvMap[r.email] = userEnvMap[r.email] || []).push(r.environment_id);
+  }
   return {
     admins: rows.filter(r => r.is_admin).map(r => r.email),
-    users:  rows.map(r => ({ email: r.email, name: r.name })),
+    users:  rows.map(r => ({
+      email: r.email,
+      name:  r.name,
+      environments: userEnvMap[r.email] || [],
+    })),
   };
 }
 
@@ -234,10 +315,109 @@ async function saveUsers({ admins, users }) {
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM users');
+    await client.query('DELETE FROM user_environments');
     for (const u of users) {
       await client.query(
         'INSERT INTO users (email, name, is_admin) VALUES ($1, $2, $3)',
         [u.email, u.name || u.email.split('@')[0], admins.includes(u.email)]
+      );
+      const envs = Array.isArray(u.environments) ? u.environments : [];
+      for (const envId of envs) {
+        await client.query(
+          'INSERT INTO user_environments (email, environment_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [u.email, envId]
+        );
+      }
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Ambientes ─────────────────────────────────────────────────────────────────
+
+async function listEnvironments() {
+  const { rows } = await pool.query(
+    'SELECT id, name, logo, created_at, created_by FROM environments ORDER BY id'
+  );
+  return rows;
+}
+
+async function getEnvironment(id) {
+  const { rows } = await pool.query(
+    'SELECT id, name, logo, created_at, created_by FROM environments WHERE id=$1', [id]
+  );
+  return rows[0] || null;
+}
+
+async function createEnvironment({ name, logo = null, createdBy = null }) {
+  const { rows } = await pool.query(
+    'INSERT INTO environments (name, logo, created_by) VALUES ($1, $2, $3) RETURNING id, name, logo, created_at, created_by',
+    [name, logo, createdBy]
+  );
+  return rows[0];
+}
+
+async function updateEnvironment(id, { name, logo }) {
+  const fields = [], params = [];
+  let p = 1;
+  if (name !== undefined) { fields.push(`name=$${p++}`); params.push(name); }
+  if (logo !== undefined) { fields.push(`logo=$${p++}`); params.push(logo); }
+  if (!fields.length) return await getEnvironment(id);
+  params.push(id);
+  const { rows } = await pool.query(
+    `UPDATE environments SET ${fields.join(', ')} WHERE id=$${p} RETURNING id, name, logo, created_at, created_by`,
+    params
+  );
+  return rows[0] || null;
+}
+
+async function deleteEnvironment(id) {
+  if (Number(id) === 1) throw new Error('O ambiente padrão não pode ser removido.');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM live_doc          WHERE environment_id=$1', [id]);
+    await client.query('DELETE FROM published_flows   WHERE environment_id=$1', [id]);
+    await client.query('DELETE FROM backups           WHERE environment_id=$1', [id]);
+    await client.query('DELETE FROM access_requests   WHERE environment_id=$1', [id]);
+    await client.query('DELETE FROM user_environments WHERE environment_id=$1', [id]);
+    await client.query('UPDATE sessions SET current_environment_id=NULL WHERE current_environment_id=$1', [id]);
+    await client.query('DELETE FROM environments WHERE id=$1', [id]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+async function getEnvironmentsForUser(email, isAdmin) {
+  if (isAdmin) return await listEnvironments();
+  const { rows } = await pool.query(
+    `SELECT e.id, e.name, e.logo, e.created_at, e.created_by
+     FROM environments e
+     JOIN user_environments ue ON ue.environment_id = e.id
+     WHERE ue.email = $1
+     ORDER BY e.id`, [email]
+  );
+  return rows;
+}
+
+async function setUserEnvironments(email, environmentIds) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM user_environments WHERE email=$1', [email]);
+    for (const envId of (environmentIds || [])) {
+      await client.query(
+        'INSERT INTO user_environments (email, environment_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [email, envId]
       );
     }
     await client.query('COMMIT');
@@ -249,25 +429,45 @@ async function saveUsers({ admins, users }) {
   }
 }
 
+async function userHasEnvironmentAccess(email, isAdmin, envId) {
+  if (isAdmin) return true;
+  const { rows } = await pool.query(
+    'SELECT 1 FROM user_environments WHERE email=$1 AND environment_id=$2', [email, envId]
+  );
+  return rows.length > 0;
+}
+
 // ── Sessões ───────────────────────────────────────────────────────────────────
 
 async function getSessionByToken(token) {
   if (!token) return null;
   try {
     const { rows } = await pool.query(
-      'SELECT email, name, is_admin FROM sessions WHERE token=$1', [token]
+      'SELECT email, name, is_admin, current_environment_id FROM sessions WHERE token=$1', [token]
     );
     if (!rows.length) return null;
-    return { email: rows[0].email, name: rows[0].name, isAdmin: rows[0].is_admin };
+    return {
+      email:   rows[0].email,
+      name:    rows[0].name,
+      isAdmin: rows[0].is_admin,
+      currentEnvironmentId: rows[0].current_environment_id || null,
+    };
   } catch (e) { return null; }
 }
 
-async function setSession(token, { email, name, isAdmin }) {
+async function setSession(token, { email, name, isAdmin, currentEnvironmentId = null }) {
   await pool.query(
-    `INSERT INTO sessions (token, email, name, is_admin)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (token) DO UPDATE SET email=$2, name=$3, is_admin=$4`,
-    [token, email, name, isAdmin]
+    `INSERT INTO sessions (token, email, name, is_admin, current_environment_id)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (token) DO UPDATE SET email=$2, name=$3, is_admin=$4, current_environment_id=COALESCE($5, sessions.current_environment_id)`,
+    [token, email, name, isAdmin, currentEnvironmentId]
+  );
+}
+
+async function setSessionEnvironment(token, environmentId) {
+  await pool.query(
+    'UPDATE sessions SET current_environment_id = $2 WHERE token = $1',
+    [token, environmentId]
   );
 }
 
@@ -287,68 +487,110 @@ async function revokeDeletedUserSessions(activeEmails) {
 
 // ── Live doc ──────────────────────────────────────────────────────────────────
 
-async function loadLiveDoc() {
+async function loadLiveDoc(envId = 1) {
   try {
-    const { rows } = await pool.query('SELECT data FROM live_doc WHERE id=1');
+    const { rows } = await pool.query('SELECT data FROM live_doc WHERE environment_id=$1', [envId]);
     if (rows.length) return rows[0].data;
-    const defaultFile = path.join(__dirname, 'default-flow.json');
-    if (fs.existsSync(defaultFile)) return JSON.parse(fs.readFileSync(defaultFile, 'utf8'));
+    if (envId === 1) {
+      const defaultFile = path.join(__dirname, 'default-flow.json');
+      if (fs.existsSync(defaultFile)) return JSON.parse(fs.readFileSync(defaultFile, 'utf8'));
+    }
     return null;
   } catch (e) { return null; }
 }
 
-async function saveLiveDoc(data) {
+async function saveLiveDoc(envId, data) {
+  if (typeof envId === 'object' && data === undefined) { data = envId; envId = 1; }
   await pool.query(
-    `INSERT INTO live_doc (id, data, updated_at) VALUES (1, $1, NOW())
-     ON CONFLICT (id) DO UPDATE SET data=$1, updated_at=NOW()`,
-    [JSON.stringify(data)]
+    `INSERT INTO live_doc (environment_id, data, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (environment_id) DO UPDATE SET data=$2, updated_at=NOW()`,
+    [envId, JSON.stringify(data)]
   );
 }
 
 // ── Fluxos publicados ─────────────────────────────────────────────────────────
 
-async function loadPublished(slug) {
-  const { rows } = await pool.query('SELECT data FROM published_flows WHERE slug=$1', [slug]);
-  return rows.length ? rows[0].data : null;
+async function loadPublished(slug, envId = null) {
+  if (envId) {
+    const { rows } = await pool.query(
+      'SELECT data, environment_id FROM published_flows WHERE slug=$1 AND environment_id=$2',
+      [slug, envId]
+    );
+    if (!rows.length) return null;
+    return { ...rows[0].data, _environmentId: rows[0].environment_id };
+  }
+  // Sem envId: so devolve algo se houver exatamente UMA publicacao com esse slug
+  const { rows } = await pool.query(
+    'SELECT data, environment_id FROM published_flows WHERE slug=$1', [slug]
+  );
+  if (rows.length !== 1) return null;
+  return { ...rows[0].data, _environmentId: rows[0].environment_id };
 }
 
-async function savePublished(slug, data) {
+async function savePublished(slug, envId, data) {
+  if (data === undefined) { data = envId; envId = 1; }
   await pool.query(
-    `INSERT INTO published_flows (slug, data, updated_at) VALUES ($1, $2, NOW())
-     ON CONFLICT (slug) DO UPDATE SET data=$2, updated_at=NOW()`,
-    [slug, JSON.stringify(data)]
+    `INSERT INTO published_flows (slug, environment_id, data, updated_at) VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (slug, environment_id) DO UPDATE SET data=$3, updated_at=NOW()`,
+    [slug, envId, JSON.stringify(data)]
   );
 }
 
 async function publishedExists(slug) {
-  const { rows } = await pool.query('SELECT 1 FROM published_flows WHERE slug=$1', [slug]);
+  const { rows } = await pool.query('SELECT 1 FROM published_flows WHERE slug=$1 LIMIT 1', [slug]);
   return rows.length > 0;
 }
 
-async function getLastPublishedSlug() {
+// Lista os ambientes que publicaram um determinado slug (com nome e logo)
+async function listPublishedEnvsBySlug(slug) {
+  const { rows } = await pool.query(
+    `SELECT e.id, e.name, e.logo, p.updated_at
+     FROM published_flows p
+     JOIN environments e ON e.id = p.environment_id
+     WHERE p.slug = $1
+     ORDER BY p.updated_at DESC`,
+    [slug]
+  );
+  return rows;
+}
+
+async function getLastPublishedSlug(envId = null) {
+  if (envId) {
+    const { rows } = await pool.query(
+      'SELECT slug FROM published_flows WHERE environment_id=$1 ORDER BY updated_at DESC LIMIT 1', [envId]
+    );
+    return rows[0]?.slug || null;
+  }
   const { rows } = await pool.query('SELECT slug FROM published_flows ORDER BY updated_at DESC LIMIT 1');
   return rows[0]?.slug || null;
 }
 
+async function listPublishedByEnv(envId) {
+  const { rows } = await pool.query(
+    'SELECT slug, updated_at FROM published_flows WHERE environment_id=$1 ORDER BY updated_at DESC', [envId]
+  );
+  return rows;
+}
+
 // ── Solicitações de acesso ────────────────────────────────────────────────────
 
-async function createAccessRequest(nodeId, nodeTitle, requesterEmail, requesterName) {
+async function createAccessRequest(envId, nodeId, nodeTitle, requesterEmail, requesterName) {
   const existing = await pool.query(
-    'SELECT id, status FROM access_requests WHERE node_id=$1 AND requester_email=$2 AND status=$3',
-    [nodeId, requesterEmail, 'pending']
+    'SELECT id, status FROM access_requests WHERE environment_id=$1 AND node_id=$2 AND requester_email=$3 AND status=$4',
+    [envId, nodeId, requesterEmail, 'pending']
   );
   if (existing.rows.length > 0) return { id: existing.rows[0].id, alreadyExists: true };
   const { rows } = await pool.query(
-    'INSERT INTO access_requests (node_id, node_title, requester_email, requester_name) VALUES ($1,$2,$3,$4) RETURNING id',
-    [nodeId, nodeTitle, requesterEmail, requesterName]
+    'INSERT INTO access_requests (environment_id, node_id, node_title, requester_email, requester_name) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [envId, nodeId, nodeTitle, requesterEmail, requesterName]
   );
   return { id: rows[0].id, alreadyExists: false };
 }
 
-async function listAccessRequests(status = 'pending') {
+async function listAccessRequests(envId, status = 'pending') {
   const { rows } = await pool.query(
-    'SELECT * FROM access_requests WHERE status=$1 ORDER BY created_at DESC',
-    [status]
+    'SELECT * FROM access_requests WHERE environment_id=$1 AND status=$2 ORDER BY created_at DESC',
+    [envId, status]
   );
   return rows;
 }
@@ -361,12 +603,11 @@ async function resolveAccessRequest(id, status, resolvedBy) {
   return rows[0] || null;
 }
 
-async function getMyAccessRequests(email) {
+async function getMyAccessRequests(envId, email) {
   const { rows } = await pool.query(
-    'SELECT node_id, status FROM access_requests WHERE requester_email=$1 ORDER BY created_at DESC',
-    [email]
+    'SELECT node_id, status FROM access_requests WHERE environment_id=$1 AND requester_email=$2 ORDER BY created_at DESC',
+    [envId, email]
   );
-  // Retorna mapa nodeId → status mais recente
   const map = {};
   for (const r of rows) {
     if (!map[r.node_id]) map[r.node_id] = r.status;
@@ -391,62 +632,73 @@ async function loadImage(filename) {
 
 // ── Backups ───────────────────────────────────────────────────────────────────
 
-async function listBackups() {
+async function listBackups(envId = null) {
+  const where = envId ? 'WHERE environment_id = $1' : '';
+  const params = envId ? [envId] : [];
   const { rows } = await pool.query(
-    'SELECT filename, created_at, length(data::text) AS size FROM backups ORDER BY created_at DESC'
+    `SELECT filename, created_at, length(data::text) AS size FROM backups ${where} ORDER BY created_at DESC`,
+    params
   );
   return rows.map(r => ({ filename: r.filename, size: parseInt(r.size, 10), mtime: r.created_at }));
 }
 
-async function saveBackup(filename, data) {
+async function saveBackup(filename, envId, data) {
+  if (data === undefined) { data = envId; envId = 1; }
   await pool.query(
-    `INSERT INTO backups (filename, data) VALUES ($1, $2)
-     ON CONFLICT (filename) DO UPDATE SET data=$2`,
-    [filename, JSON.stringify(data)]
+    `INSERT INTO backups (filename, environment_id, data) VALUES ($1, $2, $3)
+     ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2`,
+    [filename, envId, JSON.stringify(data)]
   );
 }
 
-async function loadBackup(filename) {
+async function loadBackup(filename, envId = null) {
+  if (envId) {
+    const { rows } = await pool.query(
+      'SELECT data FROM backups WHERE filename=$1 AND environment_id=$2', [filename, envId]
+    );
+    return rows.length ? rows[0].data : null;
+  }
   const { rows } = await pool.query('SELECT data FROM backups WHERE filename=$1', [filename]);
   return rows.length ? rows[0].data : null;
 }
 
 // ── Auditoria ─────────────────────────────────────────────────────────────────
 
-async function logAudit(actorEmail, action, description, target = null, metadata = null) {
+async function logAudit(actorEmail, action, description, target = null, metadata = null, environmentId = null) {
   try {
     await pool.query(
-      'INSERT INTO audit_logs (actor_email, action, description, target, metadata) VALUES ($1, $2, $3, $4, $5)',
-      [actorEmail, action, description, target, metadata ? JSON.stringify(metadata) : null]
+      'INSERT INTO audit_logs (actor_email, action, description, target, metadata, environment_id) VALUES ($1, $2, $3, $4, $5, $6)',
+      [actorEmail, action, description, target, metadata ? JSON.stringify(metadata) : null, environmentId]
     );
   } catch (e) { console.error('logAudit error:', e.message); }
 }
 
-async function batchLogAudit(actorEmail, entries) {
+async function batchLogAudit(actorEmail, entries, environmentId = null) {
   if (!entries || entries.length === 0) return;
   try {
     for (const e of entries) {
       await pool.query(
-        'INSERT INTO audit_logs (actor_email, action, description, target, metadata) VALUES ($1, $2, $3, $4, $5)',
-        [actorEmail, e.action, e.description, e.target || null, e.metadata ? JSON.stringify(e.metadata) : null]
+        'INSERT INTO audit_logs (actor_email, action, description, target, metadata, environment_id) VALUES ($1, $2, $3, $4, $5, $6)',
+        [actorEmail, e.action, e.description, e.target || null, e.metadata ? JSON.stringify(e.metadata) : null, environmentId]
       );
     }
   } catch (e) { console.error('batchLogAudit error:', e.message); }
 }
 
-async function getAuditLogs({ from, to, user, action, limit = 100, offset = 0 } = {}) {
+async function getAuditLogs({ from, to, user, action, limit = 100, offset = 0, environmentId = null } = {}) {
   try {
     const conds = [], params = [];
     let p = 1;
-    if (from)   { conds.push(`created_at >= $${p++}`); params.push(from); }
-    if (to)     { conds.push(`created_at <  $${p++}`); params.push(to); }
-    if (user)   { conds.push(`actor_email ILIKE $${p++}`); params.push(`%${user}%`); }
-    if (action) { conds.push(`action LIKE $${p++}`); params.push(action + '%'); }
+    if (from)          { conds.push(`created_at >= $${p++}`);     params.push(from); }
+    if (to)            { conds.push(`created_at <  $${p++}`);     params.push(to); }
+    if (user)          { conds.push(`actor_email ILIKE $${p++}`); params.push(`%${user}%`); }
+    if (action)        { conds.push(`action LIKE $${p++}`);       params.push(action + '%'); }
+    if (environmentId) { conds.push(`(environment_id = $${p++} OR environment_id IS NULL)`); params.push(environmentId); }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const lim = Math.min(Number(limit) || 100, 500);
     const off = Number(offset) || 0;
     const { rows } = await pool.query(
-      `SELECT id, actor_email, action, target, description, metadata, created_at
+      `SELECT id, actor_email, action, target, description, metadata, environment_id, created_at
        FROM audit_logs ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
       [...params, lim, off]
     );
@@ -471,7 +723,7 @@ async function deleteAuditLog(id) {
   } catch (e) { console.error('deleteAuditLog error:', e.message); return { ok: false, error: e.message }; }
 }
 
-async function getDbStatus() {
+async function getDbStatus(envId = 1) {
   try {
     const [docRow, backupRow, auditRow, userRow, imgRow] = await Promise.all([
       pool.query(`SELECT updated_at,
@@ -479,8 +731,8 @@ async function getDbStatus() {
                          jsonb_array_length(data->'edges') AS edge_count,
                          (SELECT count(*) FROM jsonb_object_keys(data->'subflows')) AS subflow_count,
                          pg_size_pretty(length(data::text)::bigint) AS doc_size
-                  FROM live_doc WHERE id = 1`),
-      pool.query(`SELECT COUNT(*) AS total FROM backups`),
+                  FROM live_doc WHERE environment_id = $1`, [envId]),
+      pool.query(`SELECT COUNT(*) AS total FROM backups WHERE environment_id = $1`, [envId]),
       pool.query(`SELECT COUNT(*) AS total FROM audit_logs`),
       pool.query(`SELECT COUNT(*) AS total FROM users`),
       pool.query(`SELECT COUNT(*) AS total FROM images`),
@@ -508,11 +760,13 @@ async function getDbStatus() {
 module.exports = {
   init, pool,
   loadUsers, saveUsers,
-  getSessionByToken, setSession, updateSessionAdmins, revokeDeletedUserSessions,
+  getSessionByToken, setSession, setSessionEnvironment, updateSessionAdmins, revokeDeletedUserSessions,
   loadLiveDoc, saveLiveDoc,
-  loadPublished, savePublished, publishedExists, getLastPublishedSlug,
+  loadPublished, savePublished, publishedExists, getLastPublishedSlug, listPublishedByEnv, listPublishedEnvsBySlug,
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,
   createAccessRequest, listAccessRequests, resolveAccessRequest, getMyAccessRequests,
   logAudit, batchLogAudit, getAuditLogs, clearAuditLogs, deleteAuditLog, getDbStatus,
+  listEnvironments, getEnvironment, createEnvironment, updateEnvironment, deleteEnvironment,
+  getEnvironmentsForUser, setUserEnvironments, userHasEnvironmentAccess,
 };

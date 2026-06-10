@@ -302,7 +302,24 @@ async function getSession(req) {
   const token = parseCookies(req).fc_session;
   const session = await db.getSessionByToken(token || null);
   console.log('>>> getSession: token=', token ? 'sim' : 'nao', '| session=', session ? 'sim' : 'nao');
+  if (session) session._token = token;
   return session;
+}
+
+// Determina o ambiente "efetivo" da sessão. Retorna null se sem ambiente acessível.
+async function getEffectiveEnvId(session) {
+  if (!session) return null;
+  let envId = session.currentEnvironmentId;
+  if (!envId) {
+    const envs = await db.getEnvironmentsForUser(session.email, session.isAdmin);
+    if (envs.length > 0) {
+      envId = envs[0].id;
+      if (session._token) await db.setSessionEnvironment(session._token, envId);
+    }
+  }
+  if (!envId) return null;
+  const ok = await db.userHasEnvironmentAccess(session.email, session.isAdmin, envId);
+  return ok ? envId : null;
 }
 
 function sendJson(res, status, data) {
@@ -330,7 +347,7 @@ function getWindowsUPN() {
   });
 }
 
-function serveHtml(res, userInfo, newToken, simulateAs = null, liveDoc = null) {
+function serveHtml(res, userInfo, newToken, simulateAs = null, liveDoc = null, envs = null, currentEnv = null) {
   try {
     let html = fs.readFileSync('./pages/Fluxograma Interativo.html', 'utf8');
     let script = `window.__CURRENT_USER__=${JSON.stringify(userInfo)};`;
@@ -338,6 +355,8 @@ function serveHtml(res, userInfo, newToken, simulateAs = null, liveDoc = null) {
     if (liveDoc && liveDoc.nodes && liveDoc.edges) {
       script += `window.__LIVE_DOC__=${JSON.stringify(liveDoc)};`;
     }
+    if (envs) script += `window.__ENVIRONMENTS__=${JSON.stringify(envs)};`;
+    if (currentEnv) script += `window.__CURRENT_ENV__=${JSON.stringify(currentEnv)};`;
     html = html.replace('</head>', `<script>${script}</script>\n</head>`);
     const headers = { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' };
     if (newToken) headers['Set-Cookie'] = `fc_session=${newToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
@@ -349,8 +368,8 @@ function serveHtml(res, userInfo, newToken, simulateAs = null, liveDoc = null) {
 async function serveMainApp(req, res) {
   const parsedUrl  = new URL(req.url, 'http://localhost');
   const simulateAs = parsedUrl.searchParams.get('simulate_as');
+  const simulateEnvId = parseInt(parsedUrl.searchParams.get('env') || '0', 10) || null;
   const session    = await getSession(req);
-  const liveDoc    = await db.loadLiveDoc();
 
   // Simulação: admin abre a visão de outro usuário em nova aba
   if (simulateAs && session && session.isAdmin) {
@@ -363,12 +382,37 @@ async function serveMainApp(req, res) {
       return;
     }
     const isAdmin = users.admins.includes(email);
-    serveHtml(res, { email, isAdmin, name: simUser.name }, null, email, liveDoc);
+    const simUserEnvs = await db.getEnvironmentsForUser(email, isAdmin);
+    // Valida env solicitado: se nao for acessivel ao usuario simulado, ignora
+    let currentEnvId = null;
+    if (simulateEnvId && simUserEnvs.some(e => e.id === simulateEnvId)) {
+      currentEnvId = simulateEnvId;
+    } else if (simUserEnvs.length === 1) {
+      currentEnvId = simUserEnvs[0].id;
+    }
+    // currentEnvId pode ser null quando ha multiplos envs e nenhum foi escolhido → cliente mostra picker
+    const currentEnv = simUserEnvs.find(e => e.id === currentEnvId) || null;
+    const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+    serveHtml(res, { email, isAdmin, name: simUser.name }, null, email, liveDoc, simUserEnvs, currentEnv);
     return;
   }
 
   // Já tem sessão válida → servir direto
-  if (session) { serveHtml(res, session, null, null, liveDoc); return; }
+  if (session) {
+    const envs = await db.getEnvironmentsForUser(session.email, session.isAdmin);
+    let currentEnvId = session.currentEnvironmentId;
+    if (currentEnvId && !envs.some(e => e.id === currentEnvId)) currentEnvId = null;
+    if (!currentEnvId && envs.length === 1) {
+      currentEnvId = envs[0].id;
+      if (session._token) await db.setSessionEnvironment(session._token, currentEnvId);
+    } else if (currentEnvId && session._token && currentEnvId !== session.currentEnvironmentId) {
+      await db.setSessionEnvironment(session._token, currentEnvId);
+    }
+    const currentEnv = envs.find(e => e.id === currentEnvId) || null;
+    const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+    serveHtml(res, session, null, null, liveDoc, envs, currentEnv);
+    return;
+  }
 
   // Detectar usuário Windows automaticamente via whoami /upn
   let email;
@@ -383,7 +427,7 @@ async function serveMainApp(req, res) {
   // Bootstrap: primeiro acesso vira admin automaticamente
   if (users.admins.length === 0 && users.users.length === 0) {
     users.admins.push(email);
-    users.users.push({ email, name: email.split('@')[0] });
+    users.users.push({ email, name: email.split('@')[0], environments: [1] });
     await db.saveUsers(users);
   } else if (!users.admins.includes(email) && !users.users.some(u => u.email === email)) {
     res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -401,8 +445,12 @@ p{color:#555;line-height:1.6}</style></head><body>
   const userRecord = users.users.find(u => u.email === email) || { name: email.split('@')[0] };
   const token      = crypto.randomBytes(24).toString('hex');
   const userInfo   = { email, isAdmin, name: userRecord.name };
-  await db.setSession(token, userInfo);
-  serveHtml(res, userInfo, token, null, liveDoc);
+  const envs       = await db.getEnvironmentsForUser(email, isAdmin);
+  const currentEnvId = envs.length === 1 ? envs[0].id : null;
+  await db.setSession(token, { ...userInfo, currentEnvironmentId: currentEnvId });
+  const currentEnv = envs.find(e => e.id === currentEnvId) || null;
+  const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+  serveHtml(res, userInfo, token, null, liveDoc, envs, currentEnv);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -572,14 +620,19 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, error: 'Formato inválido' }); return;
       }
       const prev = await db.loadUsers();
-      await db.saveUsers({ admins: body.admins, users: body.users });
+      const normUsers = body.users.map(u => ({
+        ...u,
+        environments: Array.isArray(u.environments)
+          ? u.environments.map(n => parseInt(n, 10)).filter(Boolean)
+          : (prev.users.find(p => p.email === u.email)?.environments || []),
+      }));
+      await db.saveUsers({ admins: body.admins, users: normUsers });
       await db.updateSessionAdmins(body.admins);
-      await db.revokeDeletedUserSessions(body.users.map(u => u.email));
-      // Auditar mudanças de usuários
+      await db.revokeDeletedUserSessions(normUsers.map(u => u.email));
       const prevEmails = new Set(prev.users.map(u => u.email));
-      const newEmails  = new Set(body.users.map(u => u.email));
+      const newEmails  = new Set(normUsers.map(u => u.email));
       const auditEntries = [];
-      for (const u of body.users) {
+      for (const u of normUsers) {
         if (!prevEmails.has(u.email)) auditEntries.push({ action: 'user_add', target: u.email, description: `Usuário adicionado: ${u.email}` });
       }
       for (const u of prev.users) {
@@ -591,9 +644,99 @@ const server = http.createServer(async (req, res) => {
       for (const email of prev.admins) {
         if (!body.admins.includes(email)) auditEntries.push({ action: 'user_admin_revoke', target: email, description: `Admin revogado: ${email}` });
       }
+      const prevEnvMap = Object.fromEntries(prev.users.map(u => [u.email, new Set(u.environments || [])]));
+      for (const u of normUsers) {
+        const prevEnvs = prevEnvMap[u.email] || new Set();
+        const nowEnvs  = new Set(u.environments || []);
+        const added   = [...nowEnvs].filter(e => !prevEnvs.has(e));
+        const removed = [...prevEnvs].filter(e => !nowEnvs.has(e));
+        if (added.length)   auditEntries.push({ action: 'user_env_grant',  target: u.email, description: `Ambientes liberados para ${u.email}: ${added.join(', ')}`,   metadata: { added } });
+        if (removed.length) auditEntries.push({ action: 'user_env_revoke', target: u.email, description: `Ambientes removidos de ${u.email}: ${removed.join(', ')}`,    metadata: { removed } });
+      }
       if (auditEntries.length > 0) { db.batchLogAudit(session.email, auditEntries); notifyMainClients('audit_new', null); }
-      notifyMainClients('users_updated', { admins: body.admins, users: body.users });
+      notifyMainClients('users_updated', { admins: body.admins, users: normUsers });
       sendJson(res, 200, { ok: true });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // ── Ambientes ─────────────────────────────────────────────────────────────
+
+  if (req.url === '/api/environments' && req.method === 'GET') {
+    const session = await getSession(req);
+    if (!session) { sendJson(res, 401, { ok: false }); return; }
+    try {
+      const envs = await db.getEnvironmentsForUser(session.email, session.isAdmin);
+      sendJson(res, 200, { ok: true, environments: envs, currentEnvironmentId: session.currentEnvironmentId });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  if (req.url === '/api/environments' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const { name, logo } = await readBody(req);
+      const trimmed = (name || '').trim();
+      if (!trimmed) { sendJson(res, 400, { ok: false, error: 'Nome obrigatório' }); return; }
+      const env = await db.createEnvironment({ name: trimmed, logo: logo || null, createdBy: session.email });
+      await db.saveLiveDoc(env.id, { nodes: [], edges: [], subflows: {}, title: trimmed });
+      db.logAudit(session.email, 'env_create', `Ambiente criado: "${trimmed}" (#${env.id})`, String(env.id), { name: trimmed }, env.id);
+      notifyMainClients('audit_new', null);
+      notifyMainClients('environments_updated', { action: 'created', environment: env });
+      sendJson(res, 200, { ok: true, environment: env });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  const envIdMatch = req.url.match(/^\/api\/environments\/(\d+)$/);
+  if (envIdMatch && req.method === 'PUT') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const id = parseInt(envIdMatch[1], 10);
+      const body = await readBody(req);
+      const patch = {};
+      if (body.name !== undefined) patch.name = String(body.name).trim();
+      if (body.logo !== undefined) patch.logo = body.logo || null;
+      const env = await db.updateEnvironment(id, patch);
+      if (!env) { sendJson(res, 404, { ok: false }); return; }
+      db.logAudit(session.email, 'env_update', `Ambiente atualizado: "${env.name}" (#${env.id})`, String(env.id), { changes: patch }, env.id);
+      notifyMainClients('audit_new', null);
+      notifyMainClients('environments_updated', { action: 'updated', environment: env });
+      sendJson(res, 200, { ok: true, environment: env });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  if (envIdMatch && req.method === 'DELETE') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const id = parseInt(envIdMatch[1], 10);
+      const env = await db.getEnvironment(id);
+      if (!env) { sendJson(res, 404, { ok: false }); return; }
+      await db.deleteEnvironment(id);
+      db.logAudit(session.email, 'env_delete', `Ambiente removido: "${env.name}" (#${id})`, String(id), { name: env.name });
+      notifyMainClients('audit_new', null);
+      notifyMainClients('environments_updated', { action: 'deleted', id });
+      sendJson(res, 200, { ok: true });
+    } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+    return;
+  }
+
+  if (req.url === '/api/environments/select' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session) { sendJson(res, 401, { ok: false }); return; }
+    try {
+      const { environmentId } = await readBody(req);
+      const envId = parseInt(environmentId, 10);
+      if (!envId) { sendJson(res, 400, { ok: false, error: 'environmentId inválido' }); return; }
+      const ok = await db.userHasEnvironmentAccess(session.email, session.isAdmin, envId);
+      if (!ok) { sendJson(res, 403, { ok: false, error: 'Sem acesso a este ambiente' }); return; }
+      if (session._token) await db.setSessionEnvironment(session._token, envId);
+      const env = await db.getEnvironment(envId);
+      sendJson(res, 200, { ok: true, environment: env });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
@@ -605,8 +748,8 @@ const server = http.createServer(async (req, res) => {
     const actualSession = await getSession(req);
     if (!actualSession) { sendJson(res, 401, { ok: false }); return; }
     try {
-      const { nodeId, nodeTitle, simulateAs } = await readBody(req);
-      // Admin simulando outro usuário: aceita se simulateAs for fornecido
+      const body = await readBody(req);
+      const { nodeId, nodeTitle, simulateAs } = body;
       let actingEmail = actualSession.email;
       let actingName  = actualSession.name;
       if (simulateAs && actualSession.isAdmin) {
@@ -617,13 +760,26 @@ const server = http.createServer(async (req, res) => {
       } else if (actualSession.isAdmin) {
         sendJson(res, 400, { ok: false, error: 'Admin não precisa solicitar acesso' }); return;
       }
+      // Em modo simulacao, respeita o env declarado no body (valida acesso do usuario simulado);
+      // caso contrario, usa o env corrente da sessao.
+      let envId;
+      if (simulateAs && actualSession.isAdmin && body.environmentId) {
+        envId = parseInt(body.environmentId, 10) || null;
+        if (!envId) { sendJson(res, 400, { ok: false, error: 'environmentId invalido' }); return; }
+        const simIsAdmin = (await db.loadUsers()).admins.includes(actingEmail);
+        const ok = await db.userHasEnvironmentAccess(actingEmail, simIsAdmin, envId);
+        if (!ok) { sendJson(res, 403, { ok: false, error: 'Usuario simulado nao tem acesso a este ambiente' }); return; }
+      } else {
+        envId = await getEffectiveEnvId(actualSession);
+      }
+      if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
       if (!nodeId) { sendJson(res, 400, { ok: false, error: 'nodeId obrigatório' }); return; }
-      const result = await db.createAccessRequest(nodeId, nodeTitle || '', actingEmail, actingName);
+      const result = await db.createAccessRequest(envId, nodeId, nodeTitle || '', actingEmail, actingName);
       if (!result.alreadyExists) {
-        db.logAudit(actingEmail, 'access_request', `Acesso solicitado: "${nodeTitle || nodeId}"`, nodeId);
+        db.logAudit(actingEmail, 'access_request', `Acesso solicitado: "${nodeTitle || nodeId}"`, nodeId, null, envId);
         notifyMainClients('audit_new', null);
         notifyMainClients('access_request_new', {
-          id: result.id, nodeId, nodeTitle, requesterEmail: actingEmail, requesterName: actingName,
+          id: result.id, nodeId, nodeTitle, requesterEmail: actingEmail, requesterName: actingName, envId,
         });
       }
       sendJson(res, 200, { ok: true, id: result.id, alreadyExists: result.alreadyExists });
@@ -635,8 +791,10 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/access-requests' && req.method === 'GET') {
     const session = await getSession(req);
     if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    const envId = await getEffectiveEnvId(session);
+    if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     try {
-      const pending = await db.listAccessRequests('pending');
+      const pending = await db.listAccessRequests(envId, 'pending');
       sendJson(res, 200, { ok: true, requests: pending });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
@@ -651,10 +809,10 @@ const server = http.createServer(async (req, res) => {
       if (!['approved', 'denied'].includes(status)) { sendJson(res, 400, { ok: false, error: 'Status inválido' }); return; }
       const req_ = await db.resolveAccessRequest(id, status, session.email);
       if (!req_) { sendJson(res, 404, { ok: false }); return; }
+      const requestEnvId = req_.environment_id || 1;
 
-      // Se aprovado, atualiza allowedUsers do nó no live_doc
       if (status === 'approved') {
-        const doc = await db.loadLiveDoc();
+        const doc = await db.loadLiveDoc(requestEnvId);
         if (doc && Array.isArray(doc.nodes)) {
           const node = doc.nodes.find(n => n.id === req_.node_id);
           if (node) {
@@ -662,18 +820,18 @@ const server = http.createServer(async (req, res) => {
             if (!node.allowedUsers.includes(req_.requester_email)) {
               node.allowedUsers.push(req_.requester_email);
             }
-            await db.saveLiveDoc(doc);
-            notifyMainClients('doc_updated', { by: session.email });
+            await db.saveLiveDoc(requestEnvId, doc);
+            notifyMainClients('doc_updated', { by: session.email, envId: requestEnvId });
           }
         }
       }
 
       const actionKey = status === 'approved' ? 'access_approved' : 'access_denied';
       const actionLabel = status === 'approved' ? 'Acesso aprovado' : 'Acesso negado';
-      db.logAudit(session.email, actionKey, `${actionLabel} para ${req_.requester_email}: "${req_.node_title || req_.node_id}"`, req_.node_id);
+      db.logAudit(session.email, actionKey, `${actionLabel} para ${req_.requester_email}: "${req_.node_title || req_.node_id}"`, req_.node_id, null, requestEnvId);
       notifyMainClients('audit_new', null);
       notifyMainClients('access_request_resolved', {
-        nodeId: req_.node_id, status, requesterEmail: req_.requester_email,
+        nodeId: req_.node_id, status, requesterEmail: req_.requester_email, envId: requestEnvId,
       });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -687,8 +845,20 @@ const server = http.createServer(async (req, res) => {
     try {
       const parsedMine = new URL(req.url, 'http://localhost');
       const simulateAs = parsedMine.searchParams.get('simulate_as');
+      const envParam = parsedMine.searchParams.get('env');
       const email = (simulateAs && actualSession.isAdmin) ? simulateAs : actualSession.email;
-      const map = await db.getMyAccessRequests(email);
+      let envId;
+      if (simulateAs && actualSession.isAdmin && envParam) {
+        envId = parseInt(envParam, 10) || null;
+        if (!envId) { sendJson(res, 400, { ok: false, error: 'env invalido' }); return; }
+        const simIsAdmin = (await db.loadUsers()).admins.includes(email);
+        const ok = await db.userHasEnvironmentAccess(email, simIsAdmin, envId);
+        if (!ok) { sendJson(res, 403, { ok: false, error: 'Usuario simulado nao tem acesso a este ambiente' }); return; }
+      } else {
+        envId = await getEffectiveEnvId(actualSession);
+      }
+      if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
+      const map = await db.getMyAccessRequests(envId, email);
       sendJson(res, 200, { ok: true, requests: map });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
@@ -701,34 +871,56 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
     try {
       const body = await readBody(req);
+      // Cliente declara para qual ambiente esta sincronizando (evita race condition na troca de ambiente).
+      // Se nao declarar, cai para o ambiente "corrente" da sessao.
+      let envId = parseInt(body.environmentId, 10) || null;
+      if (envId) {
+        const ok = await db.userHasEnvironmentAccess(session.email, session.isAdmin, envId);
+        if (!ok) { sendJson(res, 403, { ok: false, error: 'Sem acesso a este ambiente' }); return; }
+      } else {
+        envId = await getEffectiveEnvId(session);
+      }
+      if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
       const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
       if (body._baseNodes != null) {
-        const serverDoc = await db.loadLiveDoc();
+        const serverDoc = await db.loadLiveDoc(envId);
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
-        await db.saveLiveDoc(merged);
+        await db.saveLiveDoc(envId, merged);
         if (serverDoc) {
           const auditBefore = body.auditBaseline || serverDoc;
           const changes = diffDocs(auditBefore, merged);
           if (changes.length > 0) {
-            await db.batchLogAudit(effectiveBy, changes);
+            await db.batchLogAudit(effectiveBy, changes, envId);
             notifyMainClients('audit_new', null);
           }
         }
       } else {
-        await db.saveLiveDoc(body);
+        await db.saveLiveDoc(envId, body);
       }
-      notifyMainClients('doc_updated', { by: effectiveBy, tabId: body._tabId || null });
+      notifyMainClients('doc_updated', { by: effectiveBy, tabId: body._tabId || null, envId });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
 
-  if (req.url === '/api/doc/live' && req.method === 'GET') {
+  if (req.url.startsWith('/api/doc/live') && req.method === 'GET') {
     const session = await getSession(req);
     if (!session) { sendJson(res, 401, { ok: false }); return; }
+    const u = new URL(req.url, 'http://localhost');
+    const envParam = u.searchParams.get('env');
+    let envId;
+    if (envParam) {
+      envId = parseInt(envParam, 10) || null;
+      if (!envId) { sendJson(res, 400, { ok: false, error: 'env invalido' }); return; }
+      const ok = await db.userHasEnvironmentAccess(session.email, session.isAdmin, envId);
+      if (!ok) { sendJson(res, 403, { ok: false, error: 'Sem acesso a este ambiente' }); return; }
+    } else {
+      envId = await getEffectiveEnvId(session);
+      if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
+    }
     try {
-      const data = await db.loadLiveDoc();
+      const data = await db.loadLiveDoc(envId);
       if (!data) { sendJson(res, 404, { ok: false }); return; }
       sendJson(res, 200, { ok: true, data });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -807,7 +999,10 @@ const server = http.createServer(async (req, res) => {
   // ── Backup ────────────────────────────────────────────────────────────────
 
   if (req.url === '/api/backup/save' && req.method === 'POST') {
-    if (!await getSession(req)) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const sess = await getSession(req);
+    if (!sess) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const envId = await getEffectiveEnvId(sess);
+    if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     try {
       const body = await readBody(req);
       let filename;
@@ -818,26 +1013,32 @@ const server = http.createServer(async (req, res) => {
         const name = (body.name || 'backup').replace(/[^a-zA-Z0-9_\-]/g, '_');
         filename = `${new Date().toISOString().replace(/[:.]/g, '-')}_${name}.json`;
       }
-      await db.saveBackup(filename, body.data);
+      await db.saveBackup(filename, envId, body.data);
       sendJson(res, 200, { ok: true, filename });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
 
   if (req.url === '/api/backup/list' && req.method === 'GET') {
-    if (!await getSession(req)) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const sess = await getSession(req);
+    if (!sess) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const envId = await getEffectiveEnvId(sess);
+    if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     try {
-      sendJson(res, 200, { ok: true, files: await db.listBackups() });
+      sendJson(res, 200, { ok: true, files: await db.listBackups(envId) });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
 
   const loadMatch = req.url.match(/^\/api\/backup\/load\?file=(.+)$/);
   if (loadMatch && req.method === 'GET') {
-    if (!await getSession(req)) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const sess = await getSession(req);
+    if (!sess) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const envId = await getEffectiveEnvId(sess);
+    if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     try {
       const filename = decodeURIComponent(loadMatch[1]).replace(/[/\\]/g, '');
-      const data = await db.loadBackup(filename);
+      const data = await db.loadBackup(filename, envId);
       if (!data) { sendJson(res, 404, { ok: false, error: 'Arquivo não encontrado' }); return; }
       sendJson(res, 200, { ok: true, data });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -849,8 +1050,9 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/publish/last-slug' && req.method === 'GET') {
     const session = await getSession(req);
     if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    const envId = await getEffectiveEnvId(session);
     try {
-      const slug = await db.getLastPublishedSlug();
+      const slug = envId ? await db.getLastPublishedSlug(envId) : null;
       sendJson(res, 200, { ok: true, slug: slug || '' });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
@@ -859,12 +1061,14 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/publish/save' && req.method === 'POST') {
     const session = await getSession(req);
     if (!session) { sendJson(res, 401, { ok: false, error: 'Não autenticado' }); return; }
+    const envId = await getEffectiveEnvId(session);
+    if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     try {
       const body = await readBody(req);
       const slug = (body.slug || '').replace(/[^a-z0-9\-]/g, '').slice(0, 60);
       if (!slug) { sendJson(res, 400, { ok: false, error: 'Slug inválido' }); return; }
-      await db.savePublished(slug, body.data);
-      db.logAudit(session.email, 'publish', `Fluxo publicado com slug: "${slug}"`, slug);
+      await db.savePublished(slug, envId, body.data);
+      db.logAudit(session.email, 'publish', `Fluxo publicado com slug: "${slug}"`, slug, null, envId);
       notifyMainClients('audit_new', null);
       notifySseClients(slug);
       sendJson(res, 200, { ok: true, slug });
@@ -877,7 +1081,8 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/admin/db-status' && req.method === 'GET') {
     const session = await getSession(req);
     if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
-    const status = await db.getDbStatus();
+    const envId = await getEffectiveEnvId(session) || 1;
+    const status = await db.getDbStatus(envId);
     sendJson(res, 200, status);
     return;
   }
@@ -895,7 +1100,9 @@ const server = http.createServer(async (req, res) => {
       const action = u.searchParams.get('action') || null;
       const limit  = u.searchParams.get('limit')  || 100;
       const offset = u.searchParams.get('offset') || 0;
-      const result = await db.getAuditLogs({ from, to, user, action, limit, offset });
+      const envParam = u.searchParams.get('environmentId');
+      const environmentId = envParam ? parseInt(envParam, 10) : (await getEffectiveEnvId(session) || null);
+      const result = await db.getAuditLogs({ from, to, user, action, limit, offset, environmentId });
       sendJson(res, 200, { ok: true, ...result });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
@@ -918,12 +1125,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const publishMatch = req.url.match(/^\/api\/publish\/load\/([a-z0-9][a-z0-9\-]{0,59})$/);
+  const publishMatch = req.url.match(/^\/api\/publish\/load\/([a-z0-9][a-z0-9\-]{0,59})(?:\?.*)?$/);
   if (publishMatch && req.method === 'GET') {
     try {
-      const data = await db.loadPublished(publishMatch[1]);
+      const slug = publishMatch[1];
+      const u = new URL(req.url, 'http://localhost');
+      const envParam = u.searchParams.get('env');
+      const envId = envParam ? parseInt(envParam, 10) : null;
+      const data = await db.loadPublished(slug, envId);
       if (!data) { sendJson(res, 404, { ok: false, error: 'Fluxo não encontrado' }); return; }
       sendJson(res, 200, { ok: true, data });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // Lista ambientes que publicaram um slug (público - sem autenticação)
+  const publishEnvsMatch = req.url.match(/^\/api\/publish\/envs\/([a-z0-9][a-z0-9\-]{0,59})$/);
+  if (publishEnvsMatch && req.method === 'GET') {
+    try {
+      const envs = await db.listPublishedEnvsBySlug(publishEnvsMatch[1]);
+      sendJson(res, 200, { ok: true, environments: envs });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
@@ -957,13 +1178,24 @@ const server = http.createServer(async (req, res) => {
 
   // ── Published slug route (sem auth) ──────────────────────────────────────
 
-  const slugRouteMatch = req.url.match(/^\/([a-z0-9][a-z0-9\-]{0,58}[a-z0-9]?)$/);
+  const slugRouteMatch = req.url.match(/^\/([a-z0-9][a-z0-9\-]{0,58}[a-z0-9]?)(?:\?.*)?$/);
   if (slugRouteMatch && req.method === 'GET' && !RESERVED.has(slugRouteMatch[1])) {
     const slug = slugRouteMatch[1];
     if (await db.publishedExists(slug)) {
       try {
+        const u = new URL(req.url, 'http://localhost');
+        const envParam = u.searchParams.get('env');
+        const requestedEnvId = envParam ? parseInt(envParam, 10) : null;
+        const envs = await db.listPublishedEnvsBySlug(slug);
         let html = fs.readFileSync('./pages/Fluxograma Interativo.html', 'utf8');
-        html = html.replace('</head>', `<script>window.__PUBLISHED_SLUG__="${slug}";</script>\n</head>`);
+        let script = `window.__PUBLISHED_SLUG__="${slug}";`;
+        script += `window.__PUBLISHED_ENVS__=${JSON.stringify(envs)};`;
+        if (requestedEnvId && envs.some(e => e.id === requestedEnvId)) {
+          script += `window.__PUBLISHED_ENV_ID__=${requestedEnvId};`;
+        } else if (envs.length === 1) {
+          script += `window.__PUBLISHED_ENV_ID__=${envs[0].id};`;
+        }
+        html = html.replace('</head>', `<script>${script}</script>\n</head>`);
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(html, 'utf-8');
       } catch (e) { res.writeHead(500); res.end('Erro ao servir fluxo publicado'); }

@@ -5,7 +5,11 @@ const { FlowchartCanvas, NodeModal, NODE_COLORS } = window;
 const LIVE_DOC = window.__LIVE_DOC__ || null;
 const { NODES: SEED_NODES, EDGES: SEED_EDGES } = window.FLOWCHART;
 
-const PUBLISHED_SLUG = window.__PUBLISHED_SLUG__ || null;
+const PUBLISHED_SLUG    = window.__PUBLISHED_SLUG__    || null;
+const PUBLISHED_ENVS    = window.__PUBLISHED_ENVS__    || [];
+const PUBLISHED_ENV_ID  = window.__PUBLISHED_ENV_ID__  || null;
+// Persiste a ultima escolha de ambiente para um link publicado (LS por slug)
+const PUBLISHED_ENV_LS_KEY = PUBLISHED_SLUG ? `fluxograma:pub-env:${PUBLISHED_SLUG}` : null;
 
 const TITLE_FONTS = [
   { value: '',        label: 'Sans-serif (padrão)',  css: 'ui-sans-serif, system-ui, sans-serif' },
@@ -28,6 +32,8 @@ const DEFAULT_LEGEND_CONFIG = { style: 'chip', fontSize: 13, fontFamily: '', ali
 const CURRENT_USER   = window.__CURRENT_USER__   || null;
 const IS_ADMIN       = CURRENT_USER?.isAdmin      || false;
 const SIMULATE_AS    = window.__SIMULATE_AS__    || null;
+const INITIAL_ENVIRONMENTS = window.__ENVIRONMENTS__ || [];
+const INITIAL_CURRENT_ENV  = window.__CURRENT_ENV__  || null;
 const TAB_ID         = Math.random().toString(36).slice(2); // ID único por aba — distingue "eu salvei" de "outra aba minha salvou"
 
 function canEditNode(node) {
@@ -145,18 +151,24 @@ function SimulatePanel({ onClose }) {
 // ─── Painel de gerenciamento de usuários (admin)
 function UserPanel({ onClose, onSaved }) {
   const [data, setData] = React.useState({ admins: [], users: [] });
+  const [envList, setEnvList] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [newAdminEmail, setNewAdminEmail] = React.useState('');
   const [newUserEmail, setNewUserEmail] = React.useState('');
   const [newUserName, setNewUserName] = React.useState('');
+  const [expandedUser, setExpandedUser] = React.useState(null);
 
   React.useEffect(() => {
-    fetch('/api/users')
-      .then(r => r.json())
-      .then(d => { if (d.ok) setData(d.data); setLoading(false); })
-      .catch(() => { setError('Erro ao carregar usuários.'); setLoading(false); });
+    Promise.all([
+      fetch('/api/users').then(r => r.json()),
+      fetch('/api/environments').then(r => r.json()),
+    ]).then(([u, e]) => {
+      if (u.ok) setData(u.data);
+      if (e.ok) setEnvList(e.environments || []);
+      setLoading(false);
+    }).catch(() => { setError('Erro ao carregar dados.'); setLoading(false); });
   }, []);
 
   const save = () => {
@@ -182,7 +194,7 @@ function UserPanel({ onClose, onSaved }) {
     setData(d => ({
       ...d,
       admins: [...d.admins, email],
-      users: d.users.some(u => u.email === email) ? d.users : [...d.users, { email, name: email.split('@')[0] }],
+      users: d.users.some(u => u.email === email) ? d.users : [...d.users, { email, name: email.split('@')[0], environments: envList.map(e => e.id) }],
     }));
     setNewAdminEmail('');
   };
@@ -194,11 +206,24 @@ function UserPanel({ onClose, onSaved }) {
     if (!email || !email.includes('@')) return;
     if (data.users.some(u => u.email === email)) return;
     const name = newUserName.trim() || email.split('@')[0];
-    setData(d => ({ ...d, users: [...d.users, { email, name }] }));
+    // Novo usuário comum: por padrão sem nenhum ambiente — admin precisa atribuir explicitamente
+    setData(d => ({ ...d, users: [...d.users, { email, name, environments: [] }] }));
     setNewUserEmail(''); setNewUserName('');
   };
 
   const removeUser = (email) => setData(d => ({ ...d, users: d.users.filter(u => u.email !== email) }));
+
+  const toggleUserEnv = (email, envId) => {
+    setData(d => ({
+      ...d,
+      users: d.users.map(u => {
+        if (u.email !== email) return u;
+        const envs = new Set(u.environments || []);
+        if (envs.has(envId)) envs.delete(envId); else envs.add(envId);
+        return { ...u, environments: [...envs] };
+      }),
+    }));
+  };
 
   const inp = { border: '1px solid rgba(0,0,0,0.15)', borderRadius: 6, padding: '7px 10px', font: '13px/1.4 inherit', outline: 0, flex: 1, minWidth: 0 };
 
@@ -243,20 +268,67 @@ function UserPanel({ onClose, onSaved }) {
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#3d8c4d', marginBottom: 10 }}>
                 Usuários
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10, maxHeight: 200, overflowY: 'auto' }}>
-                {data.users.map(u => (
-                  <div key={u.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: '#f4faf4', borderRadius: 6 }}>
-                    <span style={{ fontSize: 13, minWidth: 0 }}>
-                      <b>{u.name}</b>
-                      <span style={{ color: '#6b6b66', marginLeft: 5 }}>({u.email})</span>
-                      {data.admins.includes(u.email) && (
-                        <span style={{ fontSize: 10, background: '#1f5dbb', color: '#fff', borderRadius: 3, padding: '1px 5px', marginLeft: 6 }}>ADMIN</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10, maxHeight: 280, overflowY: 'auto' }}>
+                {data.users.map(u => {
+                  const isAdminUser = data.admins.includes(u.email);
+                  const expanded = expandedUser === u.email;
+                  const userEnvs = u.environments || [];
+                  return (
+                    <div key={u.email} style={{ background: '#f4faf4', borderRadius: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px' }}>
+                        <span style={{ fontSize: 13, minWidth: 0, flex: 1 }}>
+                          <b>{u.name}</b>
+                          <span style={{ color: '#6b6b66', marginLeft: 5 }}>({u.email})</span>
+                          {isAdminUser && (
+                            <span style={{ fontSize: 10, background: '#1f5dbb', color: '#fff', borderRadius: 3, padding: '1px 5px', marginLeft: 6 }}>ADMIN</span>
+                          )}
+                          {!isAdminUser && envList.length > 0 && (
+                            <span style={{ fontSize: 10, color: '#6b6b66', marginLeft: 6 }}>
+                              · {userEnvs.length} ambiente{userEnvs.length === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </span>
+                        {!isAdminUser && envList.length > 0 && (
+                          <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1f5dbb', fontSize: 11, padding: '0 6px', fontWeight: 600 }}
+                                  onClick={() => setExpandedUser(expanded ? null : u.email)}>
+                            {expanded ? '▲ ambientes' : '▼ ambientes'}
+                          </button>
+                        )}
+                        <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a52828', fontSize: 18, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}
+                                onClick={() => removeUser(u.email)} title="Remover">×</button>
+                      </div>
+                      {expanded && !isAdminUser && (
+                        <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#3d8c4d', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
+                            Ambientes que pode acessar
+                          </div>
+                          {envList.map(env => (
+                            <label key={env.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 12 }}>
+                              <input type="checkbox"
+                                     checked={userEnvs.includes(env.id)}
+                                     onChange={() => toggleUserEnv(u.email, env.id)}
+                                     style={{ accentColor: '#1f5dbb' }} />
+                              {env.logo ? (
+                                <img src={env.logo} alt="" style={{ height: 16, width: 16, objectFit: 'contain' }} />
+                              ) : (
+                                <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700 }}>
+                                  {(env.name || '?').charAt(0).toUpperCase()}
+                                </span>
+                              )}
+                              <span>{env.name}</span>
+                            </label>
+                          ))}
+                        </div>
                       )}
-                    </span>
-                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a52828', fontSize: 18, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}
-                            onClick={() => removeUser(u.email)} title="Remover">×</button>
-                  </div>
-                ))}
+                      {expanded && isAdminUser && (
+                        <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', padding: '8px 10px', fontSize: 11, color: '#6b6b66' }}>
+                          Administradores têm acesso a todos os ambientes automaticamente.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {data.users.length === 0 && <p style={{ fontSize: 12, color: '#6b6b66', margin: 0 }}>Nenhum usuário cadastrado.</p>}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1776,6 +1848,470 @@ function AuditModal({ onClose }) {
   );
 }
 
+// ─── Switcher de ambiente no topbar do link publico
+function PublishedEnvSwitcher({ envs, currentEnvId, onSwitch, onChooseAgain }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    if (open) document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  const current = envs.find(e => e.id === currentEnvId);
+  if (!current) return null;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px',
+                background: '#fff', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 7,
+                cursor: 'pointer', font: '13px inherit', maxWidth: 240,
+              }} title={current.name}>
+        {current.logo ? (
+          <img src={current.logo} alt="" style={{ height: 22, width: 22, objectFit: 'contain', borderRadius: 4 }} />
+        ) : (
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+            {(current.name || '?').charAt(0).toUpperCase()}
+          </span>
+        )}
+        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current.name}</span>
+        <span style={{ color: '#6b6b66', fontSize: 10 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 1000,
+                       background: '#fff', border: '1px solid rgba(0,0,0,0.10)', borderRadius: 8,
+                       boxShadow: '0 6px 24px rgba(0,0,0,0.12)', minWidth: 260, padding: 6 }}>
+          <div style={{ fontSize: 10, color: '#6b6b66', textTransform: 'uppercase', letterSpacing: '0.06em',
+                        fontWeight: 700, padding: '6px 10px 4px' }}>Visualizando ambiente</div>
+          {envs.map(env => (
+            <button key={env.id} onClick={() => { onSwitch(env); setOpen(false); }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                             background: env.id === currentEnvId ? '#eef3ff' : 'transparent',
+                             border: 'none', borderRadius: 6, cursor: 'pointer',
+                             font: '13px inherit', textAlign: 'left', color: 'inherit' }}>
+              {env.logo ? (
+                <img src={env.logo} alt="" style={{ height: 20, width: 20, objectFit: 'contain', borderRadius: 3 }} />
+              ) : (
+                <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                  {(env.name || '?').charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span style={{ flex: 1, fontWeight: env.id === currentEnvId ? 700 : 500 }}>{env.name}</span>
+              {env.id === currentEnvId && <span style={{ color: '#1f5dbb', fontSize: 12 }}>✓</span>}
+            </button>
+          ))}
+          <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', margin: '6px 0' }} />
+          <button onClick={() => { onChooseAgain(); setOpen(false); }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                           background: 'transparent', border: 'none', borderRadius: 6, cursor: 'pointer',
+                           color: '#1f5dbb', fontWeight: 600, fontSize: 13, textAlign: 'left' }}>
+            ← Voltar para a tela de seleção
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Seletor de ambiente no link publico (quando mesmo slug em multiplos ambientes)
+function PublishedEnvPicker({ envs, onSelect }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#f6f5f1',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ maxWidth: 760, width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Selecione um ambiente</h1>
+          <p style={{ color: '#6b6b66', fontSize: 14, marginTop: 8 }}>Este fluxo está publicado em mais de um ambiente. Escolha qual deseja visualizar.</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+          {envs.map(env => (
+            <button key={env.id} onClick={() => onSelect(env)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      gap: 10, padding: '24px 16px', background: '#fff', borderRadius: 12,
+                      border: '1.5px solid rgba(0,0,0,0.10)', cursor: 'pointer', transition: 'all 0.15s',
+                      minHeight: 160,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#1f5dbb'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(31,93,187,0.18)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.10)'; e.currentTarget.style.boxShadow = 'none'; }}>
+              {env.logo ? (
+                <img src={env.logo} alt={env.name} style={{ maxHeight: 64, maxWidth: '90%', objectFit: 'contain' }} />
+              ) : (
+                <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 24, fontWeight: 700 }}>
+                  {(env.name || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', textAlign: 'center' }}>{env.name}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Seletor de ambientes (tela inicial quando o usuário tem múltiplos)
+function EnvironmentPicker({ envs, onSelect, isAdmin, onCreate }) {
+  return (
+    <div style={{ minHeight: '100vh', background: '#f6f5f1',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ maxWidth: 760, width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a1a1a', margin: 0 }}>Selecione um ambiente</h1>
+          <p style={{ color: '#6b6b66', fontSize: 14, marginTop: 8 }}>Cada ambiente possui o seu próprio fluxograma, isolado dos demais.</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+          {envs.map(env => (
+            <button key={env.id} onClick={() => onSelect(env)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      gap: 10, padding: '24px 16px', background: '#fff', borderRadius: 12,
+                      border: '1.5px solid rgba(0,0,0,0.10)', cursor: 'pointer', transition: 'all 0.15s',
+                      minHeight: 160,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#1f5dbb'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(31,93,187,0.18)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.10)'; e.currentTarget.style.boxShadow = 'none'; }}>
+              {env.logo ? (
+                <img src={env.logo} alt={env.name} style={{ maxHeight: 64, maxWidth: '90%', objectFit: 'contain' }} />
+              ) : (
+                <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 24, fontWeight: 700 }}>
+                  {(env.name || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a1a', textAlign: 'center' }}>{env.name}</div>
+            </button>
+          ))}
+          {isAdmin && (
+            <button onClick={onCreate}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      gap: 8, padding: '24px 16px', background: '#fff', borderRadius: 12,
+                      border: '1.5px dashed rgba(31,93,187,0.4)', cursor: 'pointer',
+                      color: '#1f5dbb', minHeight: 160,
+                    }}>
+              <div style={{ fontSize: 32 }}>+</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Criar novo ambiente</div>
+            </button>
+          )}
+        </div>
+        {envs.length === 0 && !isAdmin && (
+          <p style={{ marginTop: 24, color: '#a52828', textAlign: 'center', fontSize: 14 }}>
+            Nenhum ambiente disponível para o seu usuário. Solicite acesso ao administrador.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal de criação/edição de ambiente
+function EnvironmentModal({ env, onClose, onSaved }) {
+  const [name, setName] = React.useState(env?.name || '');
+  const [logo, setLogo] = React.useState(env?.logo || '');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      fetch('/api/images/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, data: ev.target.result }),
+      }).then(r => r.json()).then(d => { if (d.ok) setLogo(d.url); });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const save = () => {
+    if (!name.trim()) { setError('Informe um nome.'); return; }
+    setSaving(true); setError(null);
+    const url = env ? `/api/environments/${env.id}` : '/api/environments';
+    const method = env ? 'PUT' : 'POST';
+    fetch(url, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), logo: logo || null }),
+    }).then(r => r.json()).then(d => {
+      setSaving(false);
+      if (d.ok) { onSaved && onSaved(d.environment); onClose(); }
+      else setError(d.error || 'Erro ao salvar.');
+    }).catch(() => { setSaving(false); setError('Erro de conexão.'); });
+  };
+
+  const remove = () => {
+    if (!env || !confirm(`Remover ambiente "${env.name}"? Isso apaga TODOS os dados (fluxo, publicações, backups, permissões) deste ambiente.`)) return;
+    setSaving(true);
+    fetch(`/api/environments/${env.id}`, { method: 'DELETE' })
+      .then(r => r.json()).then(d => {
+        setSaving(false);
+        if (d.ok) { onSaved && onSaved(null); onClose(); }
+        else setError(d.error || 'Erro ao remover.');
+      }).catch(() => { setSaving(false); setError('Erro de conexão.'); });
+  };
+
+  const inp = { border: '1px solid rgba(0,0,0,0.15)', borderRadius: 6, padding: '8px 10px', font: '14px/1.4 inherit', outline: 0, width: '100%' };
+
+  return (
+    <div className="sf-modal-overlay" onClick={onClose}>
+      <div className="sf-modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <button className="sf-close" onClick={onClose}>×</button>
+        <div className="sf-header">
+          <div className="sf-eyebrow" style={{ color: '#1f5dbb' }}>AMBIENTE</div>
+          <h2 className="sf-title" style={{ fontSize: 20, marginBottom: 4 }}>
+            {env ? 'Editar ambiente' : 'Criar novo ambiente'}
+          </h2>
+          <p className="sf-sub">Cada ambiente terá um fluxograma totalmente independente.</p>
+        </div>
+
+        <div style={{ padding: '0 32px 28px' }}>
+          {error && <div style={{ marginBottom: 12, color: '#a52828', fontSize: 13 }}>{error}</div>}
+
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3a3a36', marginBottom: 5 }}>
+            Nome do ambiente
+          </label>
+          <input type="text" value={name} onChange={e => setName(e.target.value)}
+                 placeholder="Ex: Empresa ABC" style={inp} autoFocus />
+
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#3a3a36', marginTop: 18, marginBottom: 8 }}>
+            Logotipo (opcional)
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {logo ? (
+              <>
+                <img src={logo} alt="Logo" style={{ maxHeight: 64, maxWidth: 120, objectFit: 'contain', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 6, padding: 4 }} />
+                <button className="btn-ghost" onClick={() => setLogo('')} style={{ fontSize: 12 }}>Remover logo</button>
+              </>
+            ) : (
+              <label className="btn-ghost" style={{ cursor: 'pointer', fontSize: 13 }}>
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />
+                + Selecionar imagem
+              </label>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 24, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 16 }}>
+            {env && env.id !== 1 ? (
+              <button onClick={remove} disabled={saving}
+                      style={{ background: 'none', border: 'none', color: '#a52828', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                Remover ambiente
+              </button>
+            ) : <span />}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+              <button className="btn-primary" onClick={save} disabled={saving || !name.trim()}>
+                {saving ? 'Salvando…' : (env ? 'Salvar' : 'Criar ambiente')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal: importar fluxo de outro ambiente para o atual (admin only)
+function ImportFromEnvModal({ environments, currentEnv, onClose, onImport }) {
+  const [selectedId, setSelectedId] = React.useState(null);
+  const [step, setStep] = React.useState('select'); // select | confirming | loading | error
+  const [error, setError] = React.useState(null);
+  const others = (environments || []).filter(e => !currentEnv || e.id !== currentEnv.id);
+
+  const confirm = async () => {
+    if (!selectedId) return;
+    setStep('loading'); setError(null);
+    try {
+      const r = await fetch(`/api/doc/live?env=${selectedId}`);
+      if (!r.ok) {
+        if (r.status === 404) { setError('O ambiente selecionado nao tem fluxo para importar.'); setStep('error'); return; }
+        const d = await r.json().catch(() => ({}));
+        setError(d.error || 'Erro ao carregar o fluxo.'); setStep('error'); return;
+      }
+      const d = await r.json();
+      if (!d.ok || !d.data) { setError('Resposta invalida do servidor.'); setStep('error'); return; }
+      const sourceEnv = environments.find(e => e.id === selectedId);
+      onImport && onImport(d.data, sourceEnv);
+      onClose();
+    } catch (e) { setError('Erro de conexao.'); setStep('error'); }
+  };
+
+  return (
+    <div className="sf-modal-overlay" onClick={onClose}>
+      <div className="sf-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <button className="sf-close" onClick={onClose}>×</button>
+        <div className="sf-header">
+          <div className="sf-eyebrow" style={{ color: '#c97639' }}>IMPORTAR FLUXO</div>
+          <h2 className="sf-title" style={{ fontSize: 20, marginBottom: 4 }}>Importar de outro ambiente</h2>
+          <p className="sf-sub">Substitui completamente o fluxo do ambiente atual pelo fluxo selecionado. Os sub-fluxos tambem serao copiados.</p>
+        </div>
+
+        <div style={{ padding: '0 32px 28px' }}>
+          {step === 'select' && (
+            <>
+              {others.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#6b6b66', margin: 0 }}>Nenhum outro ambiente disponivel.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+                  {others.map(env => (
+                    <label key={env.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                      borderRadius: 7, cursor: 'pointer',
+                      background: selectedId === env.id ? '#dbeaff' : '#fafaf9',
+                      border: '1.5px solid ' + (selectedId === env.id ? '#1f5dbb' : 'rgba(0,0,0,0.08)'),
+                      transition: 'border-color 0.12s, background 0.12s',
+                    }}>
+                      <input type="radio" name="import-env" value={env.id}
+                             checked={selectedId === env.id}
+                             onChange={() => setSelectedId(env.id)}
+                             style={{ accentColor: '#1f5dbb', flexShrink: 0 }} />
+                      {env.logo ? (
+                        <img src={env.logo} alt="" style={{ height: 28, width: 28, objectFit: 'contain', borderRadius: 4 }} />
+                      ) : (
+                        <span style={{ width: 28, height: 28, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>
+                          {(env.name || '?').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>{env.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {step === 'confirming' && (
+            <div style={{ padding: '12px 0' }}>
+              <div style={{ background: '#fff5e6', border: '1px solid #f5c97a', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>⚠ Atencao</div>
+                <div style={{ fontSize: 13, color: '#3a3a36', lineHeight: 1.5 }}>
+                  O fluxo atual do ambiente <b>"{currentEnv?.name}"</b> sera <b>completamente substituido</b> pelo fluxo do
+                  ambiente <b>"{environments.find(e => e.id === selectedId)?.name}"</b>. Isso inclui nos, setas e sub-fluxos.
+                </div>
+                <div style={{ fontSize: 12, color: '#6b6b66', marginTop: 8 }}>
+                  Sugestao: faca um backup antes de importar.
+                </div>
+              </div>
+            </div>
+          )}
+          {step === 'loading' && (
+            <div style={{ padding: '20px 0', color: '#6b6b66', textAlign: 'center', fontSize: 13 }}>Importando...</div>
+          )}
+          {step === 'error' && (
+            <div style={{ padding: '12px 0', color: '#a52828', fontSize: 13 }}>{error}</div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 16 }}>
+            <button className="btn-ghost" onClick={onClose} disabled={step === 'loading'}>Cancelar</button>
+            {step === 'select' && (
+              <button className="btn-primary" disabled={!selectedId} onClick={() => setStep('confirming')}>
+                Continuar →
+              </button>
+            )}
+            {step === 'confirming' && (
+              <button className="btn-primary" onClick={confirm}>
+                Confirmar e substituir
+              </button>
+            )}
+            {step === 'error' && (
+              <button className="btn-ghost" onClick={() => setStep('select')}>← Voltar</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Switcher de ambiente no topbar
+function EnvironmentSwitcher({ environments, currentEnv, onSwitch, isAdmin, onCreate, onEdit }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    if (open) document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  if (!currentEnv) return null;
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen(o => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px',
+                background: '#fff', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 7,
+                cursor: 'pointer', font: '13px inherit', maxWidth: 220,
+              }} title={currentEnv.name}>
+        {currentEnv.logo ? (
+          <img src={currentEnv.logo} alt="" style={{ height: 22, width: 22, objectFit: 'contain', borderRadius: 4 }} />
+        ) : (
+          <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+            {(currentEnv.name || '?').charAt(0).toUpperCase()}
+          </span>
+        )}
+        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentEnv.name}</span>
+        <span style={{ color: '#6b6b66', fontSize: 10 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 1000,
+                       background: '#fff', border: '1px solid rgba(0,0,0,0.10)', borderRadius: 8,
+                       boxShadow: '0 6px 24px rgba(0,0,0,0.12)', minWidth: 260, padding: 6 }}>
+          <div style={{ fontSize: 10, color: '#6b6b66', textTransform: 'uppercase', letterSpacing: '0.06em',
+                        fontWeight: 700, padding: '6px 10px 4px' }}>Ambientes</div>
+          {environments.map(env => (
+            <div key={env.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 2 }}>
+              <button onClick={() => { onSwitch(env); setOpen(false); }}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                               background: env.id === currentEnv.id ? '#eef3ff' : 'transparent',
+                               border: 'none', borderRadius: 6, cursor: 'pointer',
+                               font: '13px inherit', textAlign: 'left', color: 'inherit' }}>
+                {env.logo ? (
+                  <img src={env.logo} alt="" style={{ height: 20, width: 20, objectFit: 'contain', borderRadius: 3 }} />
+                ) : (
+                  <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                    {(env.name || '?').charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <span style={{ flex: 1, fontWeight: env.id === currentEnv.id ? 700 : 500 }}>{env.name}</span>
+                {env.id === currentEnv.id && <span style={{ color: '#1f5dbb', fontSize: 12 }}>✓</span>}
+              </button>
+              {isAdmin && (
+                <button onClick={() => { onEdit(env); setOpen(false); }}
+                        title="Editar"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b6b66', fontSize: 12, padding: '0 6px' }}>
+                  ✎
+                </button>
+              )}
+            </div>
+          ))}
+          {isAdmin && (
+            <>
+              <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', margin: '6px 0' }} />
+              <button onClick={() => { onCreate(); setOpen(false); }}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                               background: 'transparent', border: 'none', borderRadius: 6, cursor: 'pointer',
+                               color: '#1f5dbb', fontWeight: 600, fontSize: 13, textAlign: 'left' }}>
+                + Criar novo ambiente
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
@@ -1803,8 +2339,12 @@ function App() {
   const [showBackup, setShowBackup] = React.useState(false);
   const [quickSaveStatus, setQuickSaveStatus] = React.useState('idle'); // idle | saving | saved | error
   const [copiedNode, setCopiedNode] = React.useState(null);
+  const lastSlugLsKey = (envId) => `fluxograma:last-slug:${envId || 'default'}`;
   const [lastPublishedSlug, setLastPublishedSlug] = React.useState(() => {
-    try { return localStorage.getItem('fluxograma:last-slug') || ''; } catch (e) { return ''; }
+    try {
+      const envId = INITIAL_CURRENT_ENV?.id;
+      return localStorage.getItem(lastSlugLsKey(envId)) || localStorage.getItem('fluxograma:last-slug') || '';
+    } catch (e) { return ''; }
   });
   const [showUserPanel, setShowUserPanel] = React.useState(false);
   const [showSimulatePanel, setShowSimulatePanel] = React.useState(false);
@@ -1815,14 +2355,82 @@ function App() {
   const [myRequests, setMyRequests] = React.useState({}); // nodeId → status
   const [accessToast, setAccessToast] = React.useState(null); // { status, nodeTitle }
   const [showAudit, setShowAudit] = React.useState(false);
+  // ── Multi-ambientes ──
+  const [environments, setEnvironments] = React.useState(INITIAL_ENVIRONMENTS);
+  const [currentEnv, setCurrentEnv] = React.useState(INITIAL_CURRENT_ENV);
+  const [showEnvModal, setShowEnvModal] = React.useState(false);
+  const [editingEnv, setEditingEnv] = React.useState(null);
+  const [showImportFromEnv, setShowImportFromEnv] = React.useState(false);
+
+  // Troca de ambiente: faz flush sincrono do ambiente atual ANTES de trocar (evita race),
+  // limpa localStorage especifico do ambiente, depois muda a sessao e recarrega.
+  const switchEnvironment = async (env) => {
+    if (!env || (currentEnv && env.id === currentEnv.id)) return;
+    // Em modo SIMULACAO: nao persiste na sessao do admin. Apenas recarrega a aba simulada
+    // com env explicito via query string — o servidor monta a "sessao simulada" sob demanda.
+    if (SIMULATE_AS) {
+      try { localStorage.removeItem('fluxograma:subflows:v1'); } catch (_) {}
+      window.location.href = `/?simulate_as=${encodeURIComponent(SIMULATE_AS)}&env=${env.id}`;
+      return;
+    }
+    try {
+      // 1) Cancela autosave debounced pendente
+      if (syncTimer.current) clearTimeout(syncTimer.current);
+      // 2) Se admin (e nao simulando/publicado), faz flush sincrono do estado atual no ambiente CORRENTE
+      if (IS_ADMIN && !SIMULATE_AS && !PUBLISHED_SLUG && currentEnv) {
+        try {
+          const payload = buildDocPayload();
+          // Garante explicitamente o env do payload = ambiente atual (nao o destino)
+          payload.environmentId = currentEnv.id;
+          await fetch('/api/doc/sync', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch (_) { /* nao bloqueia troca por erro de sync */ }
+      }
+      // 3) Limpa subflows do localStorage (compartilhado entre ambientes) — sera repopulado no reload
+      try { localStorage.removeItem('fluxograma:subflows:v1'); } catch (_) {}
+      // 4) Troca o ambiente no backend
+      const r = await fetch('/api/environments/select', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ environmentId: env.id }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        // Recarga garante: live_doc do ambiente correto, baseline limpa, sem mistura de subflows
+        window.location.reload();
+      } else {
+        alert(d.error || 'Erro ao trocar de ambiente.');
+      }
+    } catch (e) { alert('Erro de conexão.'); }
+  };
+
+  const handleEnvSaved = async (env) => {
+    // Recarrega lista de ambientes do servidor
+    try {
+      const r = await fetch('/api/environments');
+      const d = await r.json();
+      if (d.ok) setEnvironments(d.environments);
+    } catch (_) {}
+    // Se foi remoção do ambiente atual, ou criação, redireciona
+    if (env === null) {
+      // Removido — recarregar para forçar nova seleção
+      window.location.href = '/';
+    } else if (currentEnv && env && env.id === currentEnv.id) {
+      setCurrentEnv(env);
+    }
+  };
 
   // Aplica subflows do serverDoc ao localStorage imediatamente no primeiro carregamento
   // IMPORTANTE: inclui admins — sem isso o admin salva com localStorage desatualizado
   // e o merge interpreta os subflows de outros usuários como "deletados" pelo admin
+  // SEMPRE sobrescreve (mesmo se vazio) para evitar vazamento de subflows entre ambientes
   React.useEffect(() => {
-    if (!PUBLISHED_SLUG && initial?.subflows) {
-      try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(initial.subflows)); } catch (_) {}
-    }
+    if (PUBLISHED_SLUG) return;
+    try {
+      const sf = initial?.subflows || {};
+      localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(sf));
+    } catch (_) {}
   }, []);
 
   // Salva diretamente sobre o backup existente e sincroniza o live_doc para todos
@@ -1835,6 +2443,7 @@ function App() {
     const docPayload = {
       nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows,
       _baseNodes: base ? base.nodes : null, _baseEdges: base ? base.edges : null, _baseSubflows: base ? base.subflows : null,
+      environmentId: currentEnv?.id || null,
     };
     try {
       // 1. Salva no backup (sobrescreve o existente ou cria novo)
@@ -1863,9 +2472,24 @@ function App() {
     setTimeout(() => setQuickSaveStatus('idle'), 2500);
   };
 
+  // ── Visualizacao publica: seletor de ambiente quando mesmo slug em varios ambientes
+  const [publishedEnvId, setPublishedEnvId] = React.useState(() => {
+    if (!PUBLISHED_SLUG) return null;
+    if (PUBLISHED_ENV_ID) return PUBLISHED_ENV_ID;
+    // Tenta recuperar escolha previa do localStorage
+    try {
+      const stored = parseInt(localStorage.getItem(PUBLISHED_ENV_LS_KEY) || '0', 10);
+      if (stored && PUBLISHED_ENVS.some(e => e.id === stored)) return stored;
+    } catch (_) {}
+    return null;
+  });
+
   // carrega fluxo publicado quando em modo de visualização pública
   const loadPublished = React.useCallback((showToast) => {
-    fetch(`/api/publish/load/${PUBLISHED_SLUG}`)
+    const url = publishedEnvId
+      ? `/api/publish/load/${PUBLISHED_SLUG}?env=${publishedEnvId}`
+      : `/api/publish/load/${PUBLISHED_SLUG}`;
+    fetch(url)
       .then((r) => r.json())
       .then((d) => {
         if (!d.ok || !d.data) return;
@@ -1887,13 +2511,14 @@ function App() {
           setTimeout(() => setUpdateToast(false), 4000);
         }
       });
-  }, []);
+  }, [publishedEnvId]);
 
-  // Carga inicial do fluxo publicado
+  // Carga inicial do fluxo publicado (apos selecionar o ambiente, se necessario)
   React.useEffect(() => {
     if (!PUBLISHED_SLUG) return;
+    if (PUBLISHED_ENVS.length > 1 && !publishedEnvId) return; // aguarda escolha do usuario
     loadPublished(false);
-  }, []);
+  }, [publishedEnvId]);
 
   // SSE: ouve atualizações em tempo real enquanto a página está aberta
   React.useEffect(() => {
@@ -1944,6 +2569,8 @@ function App() {
       _baseEdges:    base ? base.edges    : null,
       _baseSubflows: base ? base.subflows : null,
       _tabId: TAB_ID,
+      // Declara explicitamente para qual ambiente este payload pertence — evita race condition na troca de ambiente
+      environmentId: currentEnv?.id || null,
     };
   };
 
@@ -2016,6 +2643,7 @@ function App() {
   };
 
   // Carrega o último slug publicado do banco (para não perder referência entre sessões/dispositivos)
+  // Reexecuta quando o ambiente corrente muda
   React.useEffect(() => {
     if (!IS_ADMIN || PUBLISHED_SLUG) return;
     fetch('/api/publish/last-slug')
@@ -2023,11 +2651,14 @@ function App() {
       .then(d => {
         if (d.ok && d.slug) {
           setLastPublishedSlug(d.slug);
-          try { localStorage.setItem('fluxograma:last-slug', d.slug); } catch (_) {}
+          try { localStorage.setItem(lastSlugLsKey(currentEnv?.id), d.slug); } catch (_) {}
+        } else {
+          // Sem publicação nesse ambiente: limpa para nao oferecer slug de outro ambiente
+          setLastPublishedSlug('');
         }
       })
       .catch(() => {});
-  }, []);
+  }, [currentEnv?.id]);
 
   // SSE global: recebe atualizações de permissões em tempo real
   React.useEffect(() => {
@@ -2274,7 +2905,7 @@ function App() {
         .then(d => { if (d.ok) setPendingRequestsCount(d.requests.length); });
     } else {
       const url = SIMULATE_AS
-        ? `/api/access-request/mine?simulate_as=${encodeURIComponent(SIMULATE_AS)}`
+        ? `/api/access-request/mine?simulate_as=${encodeURIComponent(SIMULATE_AS)}${currentEnv ? `&env=${currentEnv.id}` : ''}`
         : '/api/access-request/mine';
       fetch(url)
         .then(r => r.json())
@@ -2285,6 +2916,7 @@ function App() {
   const requestAccess = async (nodeId, nodeTitle) => {
     const body = { nodeId, nodeTitle };
     if (SIMULATE_AS) body.simulateAs = SIMULATE_AS;
+    if (currentEnv) body.environmentId = currentEnv.id;
     const res = await fetch('/api/access-request', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -2384,6 +3016,46 @@ function App() {
   const openNode     = openNodeId ? (nodes.find((n) => n.id === openNodeId) || null) : null;
   const selectedEdge = selectedEdgeIdx != null ? edges[selectedEdgeIdx] : null;
 
+  // Tela de selecao de ambiente para link publico (mesmo slug em multiplos ambientes)
+  if (PUBLISHED_SLUG && PUBLISHED_ENVS.length > 1 && !publishedEnvId) {
+    return (
+      <PublishedEnvPicker
+        envs={PUBLISHED_ENVS}
+        onSelect={(env) => {
+          try { localStorage.setItem(PUBLISHED_ENV_LS_KEY, String(env.id)); } catch (_) {}
+          setPublishedEnvId(env.id);
+        }} />
+    );
+  }
+
+  // Tela de seleção de ambiente: usuário com múltiplos ambientes sem env corrente, ou admin sem ambiente
+  const needsEnvPicker = !PUBLISHED_SLUG && CURRENT_USER && !currentEnv && environments.length !== 1;
+  if (needsEnvPicker) {
+    return (
+      <>
+        <EnvironmentPicker
+          envs={environments}
+          isAdmin={IS_ADMIN}
+          onCreate={() => { setEditingEnv(null); setShowEnvModal(true); }}
+          onSelect={(env) => switchEnvironment(env)} />
+        {showEnvModal && (
+          <EnvironmentModal env={editingEnv} onClose={() => setShowEnvModal(false)}
+                            onSaved={(newEnv) => {
+                              if (newEnv) {
+                                // Após criar/editar, recarrega lista; se for nova criação, seleciona ela
+                                fetch('/api/environments').then(r => r.json()).then(d => {
+                                  if (d.ok) setEnvironments(d.environments);
+                                  if (newEnv && !editingEnv) switchEnvironment(newEnv);
+                                });
+                              } else {
+                                window.location.href = '/';
+                              }
+                            }} />
+        )}
+      </>
+    );
+  }
+
   return (
     <div className={'app' + (editorMode ? ' editor-on' : '')}>
       {/* ── Botão flutuante para reabrir o menu (link publicado colapsado) ── */}
@@ -2418,6 +3090,34 @@ function App() {
               <span className="logo-mark" />
               <span>Fluxos</span>
             </div>
+            {!PUBLISHED_SLUG && currentEnv && (
+              <>
+                <div className="divider" />
+                <EnvironmentSwitcher
+                  environments={environments}
+                  currentEnv={currentEnv}
+                  onSwitch={switchEnvironment}
+                  isAdmin={IS_ADMIN}
+                  onCreate={() => { setEditingEnv(null); setShowEnvModal(true); }}
+                  onEdit={(env) => { setEditingEnv(env); setShowEnvModal(true); }} />
+              </>
+            )}
+            {PUBLISHED_SLUG && PUBLISHED_ENVS.length > 1 && publishedEnvId && (
+              <>
+                <div className="divider" />
+                <PublishedEnvSwitcher
+                  envs={PUBLISHED_ENVS}
+                  currentEnvId={publishedEnvId}
+                  onSwitch={(env) => {
+                    try { localStorage.setItem(PUBLISHED_ENV_LS_KEY, String(env.id)); } catch (_) {}
+                    setPublishedEnvId(env.id);
+                  }}
+                  onChooseAgain={() => {
+                    try { localStorage.removeItem(PUBLISHED_ENV_LS_KEY); } catch (_) {}
+                    setPublishedEnvId(null);
+                  }} />
+              </>
+            )}
             <div className="divider" />
             <div className="doc-title">
               <input value={docTitle} onChange={(e) => setDocTitle(e.target.value)} />
@@ -2440,6 +3140,12 @@ function App() {
             ) : !editorMode ? (
               <>
                 {IS_ADMIN && <button className="btn-ghost" onClick={enterEditor}>✎ Editar</button>}
+                {IS_ADMIN && environments.filter(e => !currentEnv || e.id !== currentEnv.id).length > 0 && (
+                  <button className="btn-ghost" onClick={() => setShowImportFromEnv(true)}
+                          title="Substitui o fluxo atual pelo fluxo de outro ambiente">
+                    ⬇ Importar de outro ambiente
+                  </button>
+                )}
                 {IS_ADMIN ? (
                   <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Backup</button>
                 ) : (
@@ -2671,7 +3377,7 @@ function App() {
           lastSlug={lastPublishedSlug}
           onPublished={(slug) => {
             setLastPublishedSlug(slug);
-            try { localStorage.setItem('fluxograma:last-slug', slug); } catch (e) {}
+            try { localStorage.setItem(lastSlugLsKey(currentEnv?.id), slug); } catch (e) {}
           }}
         />
       )}
@@ -2693,6 +3399,38 @@ function App() {
         />
       )}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
+      {showEnvModal && (
+        <EnvironmentModal env={editingEnv} onClose={() => setShowEnvModal(false)}
+                          onSaved={handleEnvSaved} />
+      )}
+      {showImportFromEnv && (
+        <ImportFromEnvModal
+          environments={environments}
+          currentEnv={currentEnv}
+          onClose={() => setShowImportFromEnv(false)}
+          onImport={(data, sourceEnv) => {
+            // Substitui o estado local com os dados do ambiente importado
+            if (data.nodes)         setNodes(data.nodes);
+            if (data.edges)         setEdges(data.edges);
+            if (data.title    != null) setDocTitle(data.title);
+            if (data.flowTitle     != null) setFlowTitle(data.flowTitle);
+            if (data.flowLogo      != null) setFlowLogo(data.flowLogo);
+            if (data.flowTitleFont != null) setFlowTitleFont(data.flowTitleFont);
+            if (data.flowTitleSize != null) setFlowTitleSize(data.flowTitleSize);
+            if (data.legend        != null) setLegend(data.legend);
+            if (data.legendConfig  != null) setLegendConfig(data.legendConfig);
+            // Aplica subflows no localStorage (sempre, ate vazio)
+            try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(data.subflows || {})); } catch (_) {}
+            window.dispatchEvent(new CustomEvent('subflows-updated'));
+            // Atualiza baseline para que o proximo sync nao seja interpretado como "muitas mudancas paralelas"
+            baseDocRef.current = { nodes: data.nodes || [], edges: data.edges || [], subflows: data.subflows || {} };
+            // Sincroniza imediatamente para persistir no banco
+            setTimeout(() => { try { flushDocSync(false); } catch (_) {} }, 50);
+            // Feedback visual reusa o toast de "atualizacao"
+            setUpdateToast(true);
+            setTimeout(() => setUpdateToast(false), 4000);
+          }} />
+      )}
       {accessToast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
                       zIndex: 9999, background: accessToast.status === 'approved' ? '#3d8c4d' : '#a52828',
