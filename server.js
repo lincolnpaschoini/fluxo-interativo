@@ -272,11 +272,12 @@ function diffDocs(before, after) {
 // SSE: clientes aguardando atualizações de fluxos publicados
 const sseClients = new Map();
 
-function notifySseClients(slug) {
+function notifySseClients(slug, envId = null) {
   const clients = sseClients.get(slug);
   if (!clients || clients.size === 0) return;
+  const payload = JSON.stringify({ slug, envId });
   for (const client of clients) {
-    try { client.write(`event: updated\ndata: ${slug}\n\n`); } catch (e) {}
+    try { client.write(`event: updated\ndata: ${payload}\n\n`); } catch (e) {}
   }
 }
 
@@ -1070,7 +1071,7 @@ const server = http.createServer(async (req, res) => {
       await db.savePublished(slug, envId, body.data);
       db.logAudit(session.email, 'publish', `Fluxo publicado com slug: "${slug}"`, slug, null, envId);
       notifyMainClients('audit_new', null);
-      notifySseClients(slug);
+      notifySseClients(slug, envId);
       sendJson(res, 200, { ok: true, slug });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;

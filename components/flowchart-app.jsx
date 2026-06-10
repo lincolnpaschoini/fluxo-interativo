@@ -2543,11 +2543,32 @@ function App() {
     loadPublished(false);
   }, [publishedEnvId]);
 
+  // Refs com versao atual de publishedEnvId / loadPublished para usar no listener SSE sem closure stale
+  const publishedEnvIdRef = React.useRef(publishedEnvId);
+  const loadPublishedRef  = React.useRef(loadPublished);
+  React.useEffect(() => { publishedEnvIdRef.current = publishedEnvId; }, [publishedEnvId]);
+  React.useEffect(() => { loadPublishedRef.current  = loadPublished;  }, [loadPublished]);
+
   // SSE: ouve atualizações em tempo real enquanto a página está aberta
   React.useEffect(() => {
     if (!PUBLISHED_SLUG) return;
     const es = new EventSource(`/api/events/${PUBLISHED_SLUG}`);
-    es.addEventListener('updated', () => loadPublished(true));
+    es.addEventListener('updated', (e) => {
+      let evtEnvId = null;
+      try {
+        const data = JSON.parse(e.data);
+        if (data && typeof data === 'object') evtEnvId = data.envId || null;
+      } catch (_) {
+        // Compatibilidade com payload antigo (string com o slug): trata como sem envId conhecido
+      }
+      const currentEnvId = publishedEnvIdRef.current;
+      // Se o evento informa qual ambiente foi publicado E eu estou vendo outro ambiente, NAO recarrega.
+      // Isso evita que publicar em "Paschoini" troque o conteudo de uma aba que esta vendo "Focus".
+      if (evtEnvId && currentEnvId && evtEnvId !== currentEnvId) return;
+      // Em modo de selecao (sem env escolhido) e ha varios ambientes, tambem nao recarrega — usuario ainda nao escolheu.
+      if (!currentEnvId && PUBLISHED_ENVS.length > 1) return;
+      loadPublishedRef.current(true);
+    });
     return () => es.close();
   }, []);
 
