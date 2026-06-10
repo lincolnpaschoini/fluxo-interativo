@@ -2600,6 +2600,9 @@ function App() {
   // Sync de doc live — envia para o banco via fetch (ou sendBeacon no unload)
   const syncTimer        = React.useRef(null);
   const auditBaselineRef = React.useRef(null); // snapshot do doc quando o modal de subfluxo abriu
+  // Timestamp da ultima edicao local — usado para BLOQUEAR SSE doc_updated logo apos uma mudanca local,
+  // evitando que a propria aba reverta movimentacoes/exclusoes/edits em curso.
+  const lastLocalEditRef = React.useRef(0);
   const modalSessionRef  = React.useRef(false); // true enquanto o modal de subfluxo está aberto
 
   const flushDocSync = (beacon = false, opts = {}) => {
@@ -2728,6 +2731,9 @@ function App() {
         const data = JSON.parse(e.data);
         if (data.tabId && data.tabId === TAB_ID) return;
       } catch (_) {}
+      // Defesa: se houve edicao local recente, NAO sobrescreve — evita reverter movimentacoes,
+      // exclusoes ou edits em curso por causa de SSE que chegou desordenado ou sem tabId.
+      if (Date.now() - lastLocalEditRef.current < 3000) return;
       applyLiveDoc();
     });
 
@@ -2786,6 +2792,8 @@ function App() {
   // persiste qualquer mudança (não no modo publicado)
   React.useEffect(() => {
     if (PUBLISHED_SLUG) return;
+    // Marca timestamp da edicao local para que o handler de SSE doc_updated nao sobrescreva mudanças em curso
+    lastLocalEditRef.current = Date.now();
     saveDoc({ nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig });
     if (IS_ADMIN && !SIMULATE_AS) debouncedDocSync();
   }, [nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig]);
