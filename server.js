@@ -883,11 +883,22 @@ const server = http.createServer(async (req, res) => {
       }
       if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
       const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
+      // Score = soma simples de nodes + edges + subflows. Usado para detectar regressao.
+      const scoreOf = (d) => (d?.nodes?.length || 0) + (d?.edges?.length || 0) + Object.keys(d?.subflows || {}).length;
       let savedDoc;
       if (body._baseNodes != null) {
         const serverDoc = await db.loadLiveDoc(envId);
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
+        // PROTECAO: se o resultado merged perde >50% do conteudo atual, suspeita de sync defasado e REJEITA.
+        // O cliente pode ter perdido a versao mais recente; melhor nao salvar do que perder dados.
+        const sScore = scoreOf(serverDoc);
+        const mScore = scoreOf(merged);
+        if (sScore > 0 && mScore < sScore * 0.5) {
+          console.warn(`/api/doc/sync REJEITADO envId=${envId} sScore=${sScore} mScore=${mScore} by=${effectiveBy}`);
+          sendJson(res, 409, { ok: false, error: 'Sync rejeitado: perda excessiva de conteudo (possivel estado defasado).' });
+          return;
+        }
         await db.saveLiveDoc(envId, merged);
         savedDoc = merged;
         if (serverDoc) {
@@ -899,6 +910,15 @@ const server = http.createServer(async (req, res) => {
           }
         }
       } else {
+        // Sem _baseNodes: cliente sobrescreve diretamente. Mesma protecao.
+        const serverDoc = await db.loadLiveDoc(envId);
+        const sScore = scoreOf(serverDoc);
+        const bScore = scoreOf(body);
+        if (sScore > 0 && bScore < sScore * 0.5) {
+          console.warn(`/api/doc/sync REJEITADO (sem base) envId=${envId} sScore=${sScore} bScore=${bScore} by=${effectiveBy}`);
+          sendJson(res, 409, { ok: false, error: 'Sync rejeitado: perda excessiva de conteudo.' });
+          return;
+        }
         await db.saveLiveDoc(envId, body);
         savedDoc = body;
       }

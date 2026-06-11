@@ -2702,7 +2702,9 @@ function App() {
       // 2) Se admin (e nao simulando/publicado), faz flush sincrono do estado atual no ambiente CORRENTE.
       //    SE houve restore recente neste env (isRestoringRef true), PULA o flush — o servidor ja tem a versao correta
       //    e o estado React local pode estar defasado.
-      if (IS_ADMIN && !SIMULATE_AS && !PUBLISHED_SLUG && currentEnv && !isRestoringRef.current) {
+      // SO faz flush manual se o boot ja passou (caso contrario, o estado local pode estar parcial)
+      const bootPassed = Date.now() - bootAtRef.current >= BOOT_BLOCK_MS;
+      if (IS_ADMIN && !SIMULATE_AS && !PUBLISHED_SLUG && currentEnv && !isRestoringRef.current && bootPassed) {
         try {
           const payload = buildDocPayload();
           // Garante explicitamente o env do payload = ambiente atual (nao o destino)
@@ -2929,6 +2931,8 @@ function App() {
   const modalSessionRef  = React.useRef(false); // true enquanto o modal de subfluxo está aberto
 
   const flushDocSync = (beacon = false, opts = {}) => {
+    // Bloqueia sync nos primeiros segundos apos boot (exceto se for chamada explicita do usuario)
+    if (!opts.force && Date.now() - bootAtRef.current < BOOT_BLOCK_MS) return;
     clearTimeout(syncTimer.current);
     const base = buildDocPayload();
     if (opts.auditBaseline) base.auditBaseline = opts.auditBaseline;
@@ -2949,6 +2953,7 @@ function App() {
   const debouncedDocSync = () => {
     if (modalSessionRef.current) return; // Não sincroniza com o banco durante sessão de edição do modal (apenas para mudanças fora do modal)
     if (isRestoringRef.current) return;  // Durante restore, NAO sincroniza estado local (que esta defasado)
+    if (Date.now() - bootAtRef.current < BOOT_BLOCK_MS) return; // Boot: evita sync com estado inicial parcial
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => flushDocSync(false), 800);
   };
@@ -2957,6 +2962,7 @@ function App() {
   const autoSubflowSync = () => {
     if (PUBLISHED_SLUG) return;
     if (isRestoringRef.current) return; // bloqueia durante restore
+    if (Date.now() - bootAtRef.current < BOOT_BLOCK_MS) return; // boot
     lastLocalEditRef.current = Date.now();
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => flushDocSync(false), 1500);
@@ -3027,6 +3033,11 @@ function App() {
       return ts && (Date.now() - ts < RESTORE_PROTECTION_MS);
     } catch (_) { return false; }
   })());
+  // Timestamp do boot: bloqueia qualquer sync nos primeiros 3 segundos.
+  // Isso impede que o primeiro useEffect [nodes,edges,...] envie sync com estado
+  // parcial (especialmente quando window.__LIVE_DOC__ esta null e cai para SEED_NODES).
+  const BOOT_BLOCK_MS = 3000;
+  const bootAtRef = React.useRef(Date.now());
   // Limpa a flag depois da janela de protecao, se foi setada via LS no boot
   React.useEffect(() => {
     if (!isRestoringRef.current) return;
