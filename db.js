@@ -645,8 +645,8 @@ async function listBackups(envId = null) {
 async function saveBackup(filename, envId, data) {
   if (data === undefined) { data = envId; envId = 1; }
   await pool.query(
-    `INSERT INTO backups (filename, environment_id, data) VALUES ($1, $2, $3)
-     ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2`,
+    `INSERT INTO backups (filename, environment_id, data, created_at) VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2, created_at=NOW()`,
     [filename, envId, JSON.stringify(data)]
   );
 }

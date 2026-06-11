@@ -2142,7 +2142,7 @@ function EnvironmentModal({ env, onClose, onSaved }) {
 }
 
 // ─── Modal: restaurar live_doc a partir do publicado (admin only) ──
-function RestoreFromPublishedModal({ environments, currentEnv, onClose, onDone }) {
+function RestoreFromPublishedModal({ environments, currentEnv, onClose, onDone, onStart }) {
   // selected = Set de envIds
   const [selected, setSelected] = React.useState(new Set(currentEnv ? [currentEnv.id] : []));
   const [step, setStep] = React.useState('select'); // select | confirming | loading | result
@@ -2166,6 +2166,8 @@ function RestoreFromPublishedModal({ environments, currentEnv, onClose, onDone }
   const confirm = async () => {
     if (selected.size === 0) return;
     setStep('loading'); setError(null);
+    // Sinaliza ao pai que comecou o restore — pai cancela syncs pendentes
+    onStart && onStart();
     try {
       const r = await fetch('/api/publish/restore-to-live', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2560,6 +2562,12 @@ function App() {
   // limpa localStorage especifico do ambiente, depois muda a sessao e recarrega.
   const switchEnvironment = async (env) => {
     if (!env || (currentEnv && env.id === currentEnv.id)) return;
+    // Bloqueio: se um restore esta em andamento, nao deixa trocar de ambiente
+    // (evita enviar estado local defasado para live_doc do ambiente antigo)
+    if (isRestoringRef.current) {
+      alert('Aguarde a restauracao terminar antes de trocar de ambiente.');
+      return;
+    }
     // Em modo SIMULACAO: nao persiste na sessao do admin. Apenas recarrega a aba simulada
     // com env explicito via query string — o servidor monta a "sessao simulada" sob demanda.
     if (SIMULATE_AS) {
@@ -2817,16 +2825,16 @@ function App() {
   };
   const debouncedDocSync = () => {
     if (modalSessionRef.current) return; // Não sincroniza com o banco durante sessão de edição do modal (apenas para mudanças fora do modal)
+    if (isRestoringRef.current) return;  // Durante restore, NAO sincroniza estado local (que esta defasado)
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => flushDocSync(false), 800);
   };
 
   // Sync automatico de subflows: dispara MESMO durante o modal aberto.
-  // CRITICO: garante que edicoes de subflow nao sao perdidas se o usuario fechar a aba sem clicar em Salvar.
-  // Funciona para TODOS (admin, usuario comum, admin simulando).
   const autoSubflowSync = () => {
     if (PUBLISHED_SLUG) return;
-    lastLocalEditRef.current = Date.now(); // bloqueia applyLiveDoc por 3s
+    if (isRestoringRef.current) return; // bloqueia durante restore
+    lastLocalEditRef.current = Date.now();
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => flushDocSync(false), 1500);
   };
@@ -2881,12 +2889,26 @@ function App() {
 
   // ── Restaurar do fluxo publicado ──
   // Modal permite escolher quais ambientes restaurar (1 ou varios). Backend faz tudo em lote.
+  // CRITICO: durante o restore, NENHUM sync local pode disparar porque o estado React local
+  // ainda esta com a versao antiga; se um sync sair, vai sobrescrever live_doc com versao antiga.
   const [showRestoreModal, setShowRestoreModal] = React.useState(false);
+  const isRestoringRef = React.useRef(false); // true durante e logo apos um restore
+  const handleRestoreStart = () => {
+    isRestoringRef.current = true;
+    // Cancela qualquer sync debounced pendente
+    if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null; }
+  };
   const handleRestoreDone = (result) => {
-    // Se o ambiente atual foi restaurado, recarrega a pagina para pegar a versao limpa do servidor
+    // Se o ambiente atual foi restaurado, recarrega a pagina IMEDIATAMENTE para pegar a versao
+    // limpa do servidor — sem timeout, sem deixar window de race.
     if (result && result.currentRestored) {
-      setTimeout(() => window.location.reload(), 800);
+      // Cancela syncs pendentes e marca isRestoring para que nenhum useEffect dispare sync
+      if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null; }
+      window.location.reload();
+      return;
     }
+    // Libera flag depois de uma pequena janela (alguma SSE doc_updated pode chegar)
+    setTimeout(() => { isRestoringRef.current = false; }, 1500);
   };
 
   // Carrega o último slug publicado do banco (para não perder referência entre sessões/dispositivos)
@@ -3678,6 +3700,7 @@ function App() {
           environments={environments}
           currentEnv={currentEnv}
           onClose={() => setShowRestoreModal(false)}
+          onStart={handleRestoreStart}
           onDone={handleRestoreDone} />
       )}
       {showImportFromEnv && (
