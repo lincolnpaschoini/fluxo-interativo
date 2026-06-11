@@ -411,7 +411,8 @@ async function serveMainApp(req, res) {
     }
     const currentEnv = envs.find(e => e.id === currentEnvId) || null;
     const liveDoc = currentEnv ? await db.loadLiveDocOrLatestBackup(currentEnv.id) : null;
-    serveHtml(res, session, null, null, liveDoc, envs, currentEnv);
+    // Nunca expor o token de sessao no HTML (session._token) — o cookie e HttpOnly por seguranca
+    serveHtml(res, { email: session.email, isAdmin: session.isAdmin, name: session.name }, null, null, liveDoc, envs, currentEnv);
     return;
   }
 
@@ -885,9 +886,23 @@ const server = http.createServer(async (req, res) => {
       const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
       // Score = soma simples de nodes + edges + subflows. Usado para detectar regressao.
       const scoreOf = (d) => (d?.nodes?.length || 0) + (d?.edges?.length || 0) + Object.keys(d?.subflows || {}).length;
+      const serverDoc = await db.loadLiveDoc(envId);
+      // PROTECAO CRITICA: payload sem subflows declarados (null/ausente) significa que o cliente
+      // nao tinha o localStorage disponivel — NAO significa "apagar todos os sub-fluxos".
+      // Preserva os subflows atuais do servidor. (Era esta a causa da perda dos modais ao trocar
+      // de ambiente: o beacon de unload enviava subflows vazios e o merge os tratava como delecao.)
+      if (body.subflows == null) {
+        body.subflows = (serverDoc && serverDoc.subflows) || {};
+        // Sem subflows do cliente tambem nao ha base confiavel de subflows para o merge
+        if (body._baseNodes != null) body._baseSubflows = body.subflows;
+      }
+      // Campos de controle do cliente nunca devem ser persistidos dentro do documento
+      const stripMeta = (d) => {
+        const { _baseNodes, _baseEdges, _baseSubflows, _tabId, environmentId, simulateAs, auditBaseline, ...clean } = d;
+        return clean;
+      };
       let savedDoc;
       if (body._baseNodes != null) {
-        const serverDoc = await db.loadLiveDoc(envId);
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         // PROTECAO: se o resultado merged perde >50% do conteudo atual, suspeita de sync defasado e REJEITA.
@@ -899,8 +914,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 409, { ok: false, error: 'Sync rejeitado: perda excessiva de conteudo (possivel estado defasado).' });
           return;
         }
-        await db.saveLiveDoc(envId, merged);
-        savedDoc = merged;
+        savedDoc = stripMeta(merged);
+        await db.saveLiveDoc(envId, savedDoc);
         if (serverDoc) {
           const auditBefore = body.auditBaseline || serverDoc;
           const changes = diffDocs(auditBefore, merged);
@@ -911,7 +926,6 @@ const server = http.createServer(async (req, res) => {
         }
       } else {
         // Sem _baseNodes: cliente sobrescreve diretamente. Mesma protecao.
-        const serverDoc = await db.loadLiveDoc(envId);
         const sScore = scoreOf(serverDoc);
         const bScore = scoreOf(body);
         if (sScore > 0 && bScore < sScore * 0.5) {
@@ -919,8 +933,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 409, { ok: false, error: 'Sync rejeitado: perda excessiva de conteudo.' });
           return;
         }
-        await db.saveLiveDoc(envId, body);
-        savedDoc = body;
+        savedDoc = stripMeta(body);
+        await db.saveLiveDoc(envId, savedDoc);
       }
       // Auto-backup: garante um ponto de recuperacao por ambiente sem o admin precisar lembrar de salvar
       try { await db.autoBackup(envId, savedDoc); } catch (_) {}

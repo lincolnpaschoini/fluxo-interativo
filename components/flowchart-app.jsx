@@ -62,6 +62,11 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 
 const DOC_KEY = 'fluxograma:doc:v2';
 
+// Chave de subflows POR AMBIENTE (definida em node-modal.jsx, que carrega antes deste arquivo).
+// Isola os sub-fluxos de cada ambiente no localStorage — sem isso, trocar de ambiente
+// vazava/perdia os subflows do ambiente anterior.
+const SUBFLOWS_KEY = window.__SUBFLOWS_KEY__ || 'fluxograma:subflows:v1';
+
 function saveDoc(doc) {
   try { localStorage.setItem(DOC_KEY, JSON.stringify(doc)); } catch (e) {}
 }
@@ -372,7 +377,7 @@ function PublishDialog({ onClose, nodes, edges, docTitle, flowTitle, flowLogo, f
     setStep('publishing');
     setError(null);
     let subflows = {};
-    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    try { subflows = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch (e) {}
     fetch('/api/publish/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -430,7 +435,7 @@ function PublishDialog({ onClose, nodes, edges, docTitle, flowTitle, flowLogo, f
             <div className="pub-meta">
               <div><span>Etapas</span><b>{nodes.filter((n) => !n.isLegend).length}</b></div>
               <div><span>Conexões</span><b>{edges.length}</b></div>
-              <div><span>Sub-fluxos</span><b>{Object.keys(JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}')).length}</b></div>
+              <div><span>Sub-fluxos</span><b>{Object.keys(JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}')).length}</b></div>
             </div>
 
             {error && <p style={{ color: '#a52828', fontSize: 13, margin: '8px 0 0' }}>{error}</p>}
@@ -896,7 +901,7 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
   const save = () => {
     setStatus('saving');
     let subflows = {};
-    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    try { subflows = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch (e) {}
     const body = { name: name || 'backup', data: { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows } };
     if (overwriteMode && overwriteFile) body.overwriteFile = overwriteFile;
     fetch('/api/backup/save', {
@@ -921,7 +926,7 @@ function BackupModal({ nodes, edges, docTitle, flowTitle, flowLogo, flowTitleFon
 
   const downloadToComputer = () => {
     let subflows = {};
-    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    try { subflows = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch (e) {}
     const data = { nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2680,7 +2685,8 @@ function App() {
   const [showImportFromEnv, setShowImportFromEnv] = React.useState(false);
 
   // Troca de ambiente: faz flush sincrono do ambiente atual ANTES de trocar (evita race),
-  // limpa localStorage especifico do ambiente, depois muda a sessao e recarrega.
+  // depois muda a sessao e recarrega. Os subflows ficam em chave de localStorage POR AMBIENTE,
+  // entao nada precisa ser apagado na troca.
   const switchEnvironment = async (env) => {
     if (!env || (currentEnv && env.id === currentEnv.id)) return;
     // Bloqueio: se um restore esta em andamento, nao deixa trocar de ambiente
@@ -2692,7 +2698,7 @@ function App() {
     // Em modo SIMULACAO: nao persiste na sessao do admin. Apenas recarrega a aba simulada
     // com env explicito via query string — o servidor monta a "sessao simulada" sob demanda.
     if (SIMULATE_AS) {
-      try { localStorage.removeItem('fluxograma:subflows:v1'); } catch (_) {}
+      switchingEnvRef.current = true; // suprime o beacon de unload — o sync de troca ja foi feito
       window.location.href = `/?simulate_as=${encodeURIComponent(SIMULATE_AS)}&env=${env.id}`;
       return;
     }
@@ -2715,15 +2721,20 @@ function App() {
           });
         } catch (_) { /* nao bloqueia troca por erro de sync */ }
       }
-      // 3) Limpa subflows do localStorage (compartilhado entre ambientes) — sera repopulado no reload
-      try { localStorage.removeItem('fluxograma:subflows:v1'); } catch (_) {}
-      // 4) Troca o ambiente no backend
+      // 3) Troca o ambiente no backend.
+      //    NAO apagamos mais o localStorage de subflows aqui: a chave agora e POR AMBIENTE
+      //    (SUBFLOWS_KEY) e o boot sempre a repopula a partir do servidor. Apagar antes do reload
+      //    fazia o beacon de beforeunload enviar subflows vazios — o merge do servidor
+      //    interpretava como "apagou todos os sub-fluxos" e perdia os modais do ambiente anterior.
       const r = await fetch('/api/environments/select', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ environmentId: env.id }),
       });
       const d = await r.json();
       if (d.ok) {
+        // Suprime o beacon de unload: o flush deste ambiente ja foi feito acima de forma sincrona,
+        // e um beacon atrasado durante o reload poderia chegar fora de ordem.
+        switchingEnvRef.current = true;
         // Recarga garante: live_doc do ambiente correto, baseline limpa, sem mistura de subflows
         window.location.reload();
       } else {
@@ -2756,7 +2767,7 @@ function App() {
     if (PUBLISHED_SLUG) return;
     try {
       const sf = initial?.subflows || {};
-      localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(sf));
+      localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(sf));
     } catch (_) {}
   }, []);
 
@@ -2764,8 +2775,12 @@ function App() {
   const quickSave = async () => {
     if (quickSaveStatus === 'saving') return;
     setQuickSaveStatus('saving');
-    let subflows = {};
-    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (e) {}
+    // null = localStorage indisponivel → servidor preserva os subflows atuais (nao apaga)
+    let subflows = null;
+    try {
+      const rawSf = localStorage.getItem(SUBFLOWS_KEY);
+      subflows = rawSf == null ? null : JSON.parse(rawSf);
+    } catch (e) { subflows = null; }
     const base = baseDocRef.current;
     const docPayload = {
       nodes, edges, title: docTitle, flowTitle, flowLogo, flowTitleFont, flowTitleSize, legend, legendConfig, subflows,
@@ -2790,7 +2805,7 @@ function App() {
       if (syncRes.status === 401) { window.location.href = '/login'; return; }
       if (!syncRes.ok) throw new Error('Falha ao sincronizar');
 
-      baseDocRef.current = { nodes, edges, subflows };
+      baseDocRef.current = { nodes, edges, subflows: subflows || {} };
       setQuickSaveStatus('saved');
     } catch (e) {
       console.error('quickSave erro:', e.message);
@@ -2830,7 +2845,7 @@ function App() {
         if (d.data.legend       != null) setLegend(d.data.legend);
         if (d.data.legendConfig != null) setLegendConfig(d.data.legendConfig);
         if (d.data.subflows) {
-          try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (e) {}
+          try { localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(d.data.subflows)); } catch (e) {}
           window.dispatchEvent(new CustomEvent('subflows-updated'));
         }
         if (showToast) {
@@ -2901,9 +2916,14 @@ function App() {
   React.useEffect(() => { legendConfigRef.current   = legendConfig;  }, [legendConfig]);
 
   // Monta o payload completo do doc a partir dos refs
+  // subflows = null (e nao {}) quando o localStorage esta ausente/corrompido:
+  // o servidor entende null como "nao mexer nos subflows" — {} significaria "apagar todos".
   const buildDocPayload = () => {
-    let subflows = {};
-    try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(e) {}
+    let subflows = null;
+    try {
+      const rawSf = localStorage.getItem(SUBFLOWS_KEY);
+      subflows = rawSf == null ? null : JSON.parse(rawSf);
+    } catch(e) { subflows = null; }
     const base = baseDocRef.current;
     return {
       nodes: nodesRef.current, edges: edgesRef.current,
@@ -2941,9 +2961,12 @@ function App() {
       navigator.sendBeacon('/api/doc/sync', new Blob([payload], { type: 'application/json' }));
     } else {
       fetch('/api/doc/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
-        .then(() => {
+        .then((res) => {
+          // So avanca a base do merge se o servidor ACEITOU o sync (412/409/403 nao contam) —
+          // caso contrario o proximo merge usaria uma base falsa e poderia reverter dados.
+          if (!res || !res.ok) return;
           let subflows = {};
-          try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(_) {}
+          try { subflows = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch(_) {}
           baseDocRef.current = { nodes: nodesRef.current, edges: edgesRef.current, subflows };
           window.dispatchEvent(new Event('audit-refresh'));
         })
@@ -2972,6 +2995,9 @@ function App() {
   React.useEffect(() => {
     if (PUBLISHED_SLUG) return;
     const onUnload = () => {
+      // Durante a troca de ambiente o flush ja foi feito explicitamente; um beacon aqui
+      // poderia chegar atrasado/fora de ordem e sobrescrever o ambiente errado.
+      if (switchingEnvRef.current) return;
       try { flushDocSync(true); } catch (_) {}
     };
     window.addEventListener('beforeunload', onUnload);
@@ -2983,7 +3009,7 @@ function App() {
     if (!IS_ADMIN || SIMULATE_AS || PUBLISHED_SLUG) return;
     if (openNodeId && !modalSessionRef.current) {
       let subflows = {};
-      try { subflows = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch(e) {}
+      try { subflows = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch(e) {}
       auditBaselineRef.current = { nodes: nodesRef.current, edges: edgesRef.current, subflows };
       modalSessionRef.current = true;
     } else if (!openNodeId && modalSessionRef.current) {
@@ -3003,7 +3029,8 @@ function App() {
     if (shouldSave) {
       // Admin: usa flushDocSync com baseline (gera audit + sincroniza live_doc)
       if (IS_ADMIN && !SIMULATE_AS && baseline) {
-        flushDocSync(false, { auditBaseline: baseline });
+        // force: salvamento explicito do usuario nunca pode ser descartado pelo bloqueio de boot
+        flushDocSync(false, { auditBaseline: baseline, force: true });
       } else if (!PUBLISHED_SLUG) {
         // Usuario comum (ou admin simulando): forca persistencia imediata via quickSave
         // (salva backup + sincroniza live_doc com os subflows atuais do localStorage)
@@ -3011,7 +3038,7 @@ function App() {
       }
     } else if (baseline?.subflows) {
       // Descartar: reverte subflows do localStorage ao estado de quando o modal foi aberto
-      try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(baseline.subflows)); } catch(e) {}
+      try { localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(baseline.subflows)); } catch(e) {}
     }
     setOpenNodeId(null);
   };
@@ -3025,6 +3052,8 @@ function App() {
   // Inicializa isRestoringRef como TRUE se ouve um restore muito recente neste ambiente.
   // Isso protege contra "primeiro sync apos reload" que poderia enviar estado defasado.
   const RESTORE_PROTECTION_MS = 5000;
+  // true durante a troca de ambiente — suprime o beacon de beforeunload (flush ja foi feito)
+  const switchingEnvRef = React.useRef(false);
   const isRestoringRef = React.useRef((() => {
     try {
       const envId = INITIAL_CURRENT_ENV?.id;
@@ -3093,8 +3122,10 @@ function App() {
     if (!CURRENT_USER || PUBLISHED_SLUG) return;
 
     // Aplica o doc completo do servidor (nodes, edges, title)
+    // SEMPRE pede explicitamente o ambiente desta aba — sem ?env, o servidor usa o ambiente
+    // da SESSAO, que pode ter sido trocado por outra aba (contaminacao entre ambientes).
     const applyLiveDoc = () => {
-      fetch('/api/doc/live')
+      fetch('/api/doc/live' + (INITIAL_CURRENT_ENV ? `?env=${INITIAL_CURRENT_ENV.id}` : ''))
         .then(r => r.json())
         .then(d => {
           if (!d.ok || !d.data) return;
@@ -3113,12 +3144,12 @@ function App() {
           const modalOpen = modalSessionRef.current;
           const recentEdit = Date.now() - lastLocalEditRef.current < 3000;
           if (d.data.subflows && !modalOpen && !recentEdit) {
-            try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (_) {}
+            try { localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(d.data.subflows)); } catch (_) {}
             window.dispatchEvent(new CustomEvent('subflows-updated'));
           }
           // Atualiza base para o próximo merge três-vias
           let sf = {};
-          try { sf = JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}'); } catch (_) {}
+          try { sf = JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}'); } catch (_) {}
           baseDocRef.current = { nodes: d.data.nodes || [], edges: d.data.edges || [], subflows: d.data.subflows || sf };
         })
         .catch(() => {});
@@ -3136,6 +3167,9 @@ function App() {
       try {
         const data = JSON.parse(e.data);
         if (data.tabId && data.tabId === TAB_ID) return;
+        // Atualizacao de OUTRO ambiente (ex.: outra aba do admin trabalhando em outro ambiente)
+        // nao diz respeito a esta aba — aplicar sobrescreveria o doc local com dados alheios.
+        if (data.envId && INITIAL_CURRENT_ENV && data.envId !== INITIAL_CURRENT_ENV.id) return;
       } catch (_) {}
       // Defesa: se houve edicao local recente, NAO sobrescreve — evita reverter movimentacoes,
       // exclusoes ou edits em curso por causa de SSE que chegou desordenado ou sem tabId.
@@ -3312,7 +3346,7 @@ function App() {
     if (data.legend        != null) setLegend(data.legend);
     if (data.legendConfig  != null) setLegendConfig(data.legendConfig);
     if (data.subflows) {
-      try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(data.subflows)); } catch (e) {}
+      try { localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(data.subflows)); } catch (e) {}
       window.dispatchEvent(new CustomEvent('subflows-updated'));
     }
   };
@@ -3445,7 +3479,7 @@ function App() {
   }, [editorMode, selectedNodeId, selectedEdgeIdx, nodes, copiedNode]);
 
   const filledCount = React.useMemo(() => {
-    try { return Object.keys(JSON.parse(localStorage.getItem('fluxograma:subflows:v1') || '{}')).length; }
+    try { return Object.keys(JSON.parse(localStorage.getItem(SUBFLOWS_KEY) || '{}')).length; }
     catch (e) { return 0; }
   }, [openNodeId, showPublish]);
 
@@ -3879,7 +3913,7 @@ function App() {
             if (data.legend        != null) setLegend(data.legend);
             if (data.legendConfig  != null) setLegendConfig(data.legendConfig);
             // Aplica subflows no localStorage (sempre, ate vazio)
-            try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(data.subflows || {})); } catch (_) {}
+            try { localStorage.setItem(SUBFLOWS_KEY, JSON.stringify(data.subflows || {})); } catch (_) {}
             window.dispatchEvent(new CustomEvent('subflows-updated'));
             // Atualiza baseline para que o proximo sync nao seja interpretado como "muitas mudancas paralelas"
             baseDocRef.current = { nodes: data.nodes || [], edges: data.edges || [], subflows: data.subflows || {} };

@@ -3,7 +3,13 @@
 // Aparece em 3 estilos: modal | drawer | drill.
 // Suporta 3 níveis: Fluxo principal → Sub-fluxo → Sub-etapas (3° nível).
 
-const SUBFLOW_STORAGE_KEY = 'fluxograma:subflows:v1';
+// Chave de subflows isolada POR AMBIENTE (e por slug publicado).
+// Antes era uma chave global compartilhada entre ambientes — ao trocar de ambiente, os subflows
+// de um vazavam para o outro (ou eram apagados na troca, perdendo as alteracoes salvas).
+// Este arquivo carrega antes do flowchart-app.jsx, entao publica a chave em window.__SUBFLOWS_KEY__.
+const SUBFLOW_STORAGE_KEY = window.__SUBFLOWS_KEY__ = window.__PUBLISHED_SLUG__
+  ? `fluxograma:subflows:v1:pub:${window.__PUBLISHED_SLUG__}`
+  : `fluxograma:subflows:v1:env:${(window.__CURRENT_ENV__ && window.__CURRENT_ENV__.id) || 'none'}`;
 
 // StableInput: input controlado que NAO aceita mudancas externas enquanto esta com foco.
 // Evita reverter o que o usuario digitou quando o pai re-renderiza (SSE, autosave, etc).

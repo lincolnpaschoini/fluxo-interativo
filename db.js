@@ -151,6 +151,22 @@ async function init() {
       await client.query(`ALTER TABLE published_flows ADD CONSTRAINT published_flows_pkey PRIMARY KEY (slug, environment_id)`);
     }
 
+    // backups: PK passa de (filename) para (filename, environment_id).
+    // Sem isso, um backup com o mesmo nome (ex.: auto.json) era UMA linha global compartilhada
+    // entre todos os ambientes — cada sync de um ambiente "roubava" o backup do outro,
+    // perdendo o ponto de recuperacao e servindo dados de ambiente errado.
+    const { rows: bkpPkRows } = await client.query(`
+      SELECT a.attname FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'backups'::regclass AND i.indisprimary
+    `);
+    const bkpPkCols = bkpPkRows.map(r => r.attname).sort();
+    if (!(bkpPkCols.length === 2 && bkpPkCols[0] === 'environment_id' && bkpPkCols[1] === 'filename')) {
+      try { await client.query(`ALTER TABLE backups DROP CONSTRAINT backups_pkey`); } catch (_) {}
+      await client.query(`ALTER TABLE backups ALTER COLUMN environment_id SET NOT NULL`);
+      await client.query(`ALTER TABLE backups ADD CONSTRAINT backups_pkey PRIMARY KEY (filename, environment_id)`);
+    }
+
     await client.query(`CREATE INDEX IF NOT EXISTS published_flows_env_idx ON published_flows (environment_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS published_flows_slug_idx ON published_flows (slug)`);
     await client.query(`CREATE INDEX IF NOT EXISTS backups_env_idx          ON backups (environment_id)`);
@@ -508,21 +524,21 @@ async function saveLiveDoc(envId, data) {
   );
 }
 
-// Carrega o doc mais recente do ambiente: compara live_doc.updated_at com backup mais recente
-// e devolve o que for mais novo. Garante que o admin sempre veja a versao confiavel.
+// Carrega o doc do ambiente. live_doc e a FONTE DE VERDADE: todo salvamento (sync, restore de
+// backup, restore do publicado) escreve nele. Backup so entra como fallback quando o live_doc
+// nao existe (ambiente recem-migrado). Antes este metodo devolvia o backup quando ele era mais
+// novo que o live_doc — como a tabela de backups era compartilhada entre ambientes (auto.json
+// global), isso servia dados antigos/de outro ambiente e "revertia" alteracoes ja salvas.
 async function loadLiveDocOrLatestBackup(envId = 1) {
   try {
     const liveRow = await pool.query(
-      'SELECT data, updated_at FROM live_doc WHERE environment_id=$1', [envId]
+      'SELECT data FROM live_doc WHERE environment_id=$1', [envId]
     );
-    const bkpRow = await pool.query(
-      'SELECT data, created_at FROM backups WHERE environment_id=$1 ORDER BY created_at DESC LIMIT 1', [envId]
-    );
-    const liveTime = liveRow.rows.length ? new Date(liveRow.rows[0].updated_at).getTime() : 0;
-    const bkpTime  = bkpRow.rows.length  ? new Date(bkpRow.rows[0].created_at).getTime()  : 0;
-    if (bkpTime && bkpTime > liveTime) return bkpRow.rows[0].data;
     if (liveRow.rows.length) return liveRow.rows[0].data;
-    if (bkpRow.rows.length)  return bkpRow.rows[0].data;
+    const bkpRow = await pool.query(
+      'SELECT data FROM backups WHERE environment_id=$1 ORDER BY created_at DESC LIMIT 1', [envId]
+    );
+    if (bkpRow.rows.length) return bkpRow.rows[0].data;
     if (envId === 1) {
       const defaultFile = path.join(__dirname, 'default-flow.json');
       if (fs.existsSync(defaultFile)) return JSON.parse(fs.readFileSync(defaultFile, 'utf8'));
@@ -555,7 +571,7 @@ async function autoBackup(envId, data) {
     }
     await pool.query(
       `INSERT INTO backups (filename, environment_id, data, created_at) VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2, created_at=NOW()`,
+       ON CONFLICT (filename, environment_id) DO UPDATE SET data=$3, created_at=NOW()`,
       [filename, envId, JSON.stringify(data)]
     );
   } catch (e) { console.error('autoBackup error:', e.message); }
@@ -699,7 +715,7 @@ async function saveBackup(filename, envId, data) {
   if (data === undefined) { data = envId; envId = 1; }
   await pool.query(
     `INSERT INTO backups (filename, environment_id, data, created_at) VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2, created_at=NOW()`,
+     ON CONFLICT (filename, environment_id) DO UPDATE SET data=$3, created_at=NOW()`,
     [filename, envId, JSON.stringify(data)]
   );
 }
