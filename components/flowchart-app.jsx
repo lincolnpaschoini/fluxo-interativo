@@ -2141,6 +2141,177 @@ function EnvironmentModal({ env, onClose, onSaved }) {
   );
 }
 
+// ─── Modal: restaurar live_doc a partir do publicado (admin only) ──
+function RestoreFromPublishedModal({ environments, currentEnv, onClose, onDone }) {
+  // selected = Set de envIds
+  const [selected, setSelected] = React.useState(new Set(currentEnv ? [currentEnv.id] : []));
+  const [step, setStep] = React.useState('select'); // select | confirming | loading | result
+  const [error, setError] = React.useState(null);
+  const [result, setResult] = React.useState(null);
+
+  const all = environments || [];
+  const allSelected = all.length > 0 && selected.size === all.length;
+
+  const toggle = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(all.map(e => e.id)));
+  };
+
+  const confirm = async () => {
+    if (selected.size === 0) return;
+    setStep('loading'); setError(null);
+    try {
+      const r = await fetch('/api/publish/restore-to-live', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ environmentIds: [...selected] }),
+      });
+      const d = await r.json();
+      if (!d.ok) { setError(d.error || 'Erro ao restaurar.'); setStep('select'); return; }
+      setResult(d);
+      setStep('result');
+      // Se o ambiente atual foi restaurado, sinaliza para o pai recarregar
+      onDone && onDone({ ...d, currentRestored: currentEnv && (d.restored || []).some(r => r.envId === currentEnv.id) });
+    } catch (e) {
+      setError('Erro de conexao.'); setStep('select');
+    }
+  };
+
+  return (
+    <div className="sf-modal-overlay" onClick={onClose}>
+      <div className="sf-modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <button className="sf-close" onClick={onClose}>×</button>
+        <div className="sf-header">
+          <div className="sf-eyebrow" style={{ color: '#c97639' }}>RESTAURAR DO PUBLICADO</div>
+          <h2 className="sf-title" style={{ fontSize: 20, marginBottom: 4 }}>Restaurar fluxo a partir do publicado</h2>
+          <p className="sf-sub">Para cada ambiente selecionado, o fluxo de trabalho (live doc) sera substituido pelo ultimo fluxo publicado daquele mesmo ambiente.</p>
+        </div>
+
+        <div style={{ padding: '0 32px 28px' }}>
+          {step === 'select' && (
+            <>
+              {error && <div style={{ marginBottom: 12, color: '#a52828', fontSize: 13 }}>{error}</div>}
+              {all.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#6b6b66', margin: 0 }}>Nenhum ambiente disponivel.</p>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, color: '#6b6b66' }}>
+                      {selected.size} de {all.length} selecionado{selected.size === 1 ? '' : 's'}
+                    </span>
+                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={toggleAll}>
+                      {allSelected ? 'Limpar selecao' : 'Selecionar todos os ambientes'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+                    {all.map(env => (
+                      <label key={env.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                        borderRadius: 7, cursor: 'pointer',
+                        background: selected.has(env.id) ? '#dbeaff' : '#fafaf9',
+                        border: '1.5px solid ' + (selected.has(env.id) ? '#1f5dbb' : 'rgba(0,0,0,0.08)'),
+                      }}>
+                        <input type="checkbox" checked={selected.has(env.id)} onChange={() => toggle(env.id)}
+                               style={{ accentColor: '#1f5dbb', flexShrink: 0 }} />
+                        {env.logo ? (
+                          <img src={env.logo} alt="" style={{ height: 28, width: 28, objectFit: 'contain', borderRadius: 4 }} />
+                        ) : (
+                          <span style={{ width: 28, height: 28, borderRadius: '50%', background: '#dbeaff', color: '#1f5dbb',
+                                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>
+                            {(env.name || '?').charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <span style={{ fontSize: 14, fontWeight: 600 }}>{env.name}</span>
+                        {currentEnv && env.id === currentEnv.id && (
+                          <span style={{ fontSize: 10, background: '#1f5dbb', color: '#fff', borderRadius: 3, padding: '1px 5px' }}>ATUAL</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {step === 'confirming' && (
+            <div style={{ background: '#fff5e6', border: '1px solid #f5c97a', borderRadius: 8, padding: '12px 14px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>⚠ Atencao</div>
+              <div style={{ fontSize: 13, color: '#3a3a36', lineHeight: 1.5 }}>
+                Voce vai substituir o fluxo de trabalho (live doc) de <b>{selected.size}</b> ambiente{selected.size === 1 ? '' : 's'} pelo fluxo publicado de cada um.
+                As alteracoes locais nao publicadas serao perdidas.
+              </div>
+            </div>
+          )}
+          {step === 'loading' && (
+            <div style={{ padding: '20px 0', color: '#6b6b66', textAlign: 'center', fontSize: 13 }}>Restaurando…</div>
+          )}
+          {step === 'result' && result && (
+            <div>
+              {(result.restored || []).length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#3d8c4d', marginBottom: 6 }}>
+                    ✓ Restaurados ({(result.restored || []).length})
+                  </div>
+                  {(result.restored || []).map(r => {
+                    const env = environments.find(e => e.id === r.envId);
+                    return (
+                      <div key={r.envId} style={{ fontSize: 12, color: '#3a3a36', padding: '2px 0' }}>
+                        • {env?.name || `Ambiente #${r.envId}`} <span style={{ color: '#6b6b66' }}>(slug: {r.slug})</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {(result.failed || []).length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#a52828', marginBottom: 6 }}>
+                    ✗ Nao restaurados ({(result.failed || []).length})
+                  </div>
+                  {(result.failed || []).map(r => {
+                    const env = environments.find(e => e.id === r.envId);
+                    return (
+                      <div key={r.envId} style={{ fontSize: 12, color: '#3a3a36', padding: '2px 0' }}>
+                        • {env?.name || `Ambiente #${r.envId}`} — <span style={{ color: '#a52828' }}>{r.reason}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 16 }}>
+            {step === 'select' && (
+              <>
+                <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+                <button className="btn-primary" disabled={selected.size === 0} onClick={() => setStep('confirming')}>
+                  Continuar →
+                </button>
+              </>
+            )}
+            {step === 'confirming' && (
+              <>
+                <button className="btn-ghost" onClick={() => setStep('select')}>← Voltar</button>
+                <button className="btn-primary" onClick={confirm}>Confirmar e restaurar</button>
+              </>
+            )}
+            {step === 'loading' && (
+              <button className="btn-ghost" disabled>Aguarde…</button>
+            )}
+            {step === 'result' && (
+              <button className="btn-primary" onClick={onClose}>Fechar</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Modal: importar fluxo de outro ambiente para o atual (admin only)
 function ImportFromEnvModal({ environments, currentEnv, onClose, onImport }) {
   const [selectedId, setSelectedId] = React.useState(null);
@@ -2645,15 +2816,27 @@ function App() {
     }
   };
   const debouncedDocSync = () => {
-    if (modalSessionRef.current) return; // Não sincroniza com o banco durante sessão de edição do modal
+    if (modalSessionRef.current) return; // Não sincroniza com o banco durante sessão de edição do modal (apenas para mudanças fora do modal)
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => flushDocSync(false), 800);
   };
 
-  // Garante sync antes de fechar/recarregar a página
+  // Sync automatico de subflows: dispara MESMO durante o modal aberto.
+  // CRITICO: garante que edicoes de subflow nao sao perdidas se o usuario fechar a aba sem clicar em Salvar.
+  // Funciona para TODOS (admin, usuario comum, admin simulando).
+  const autoSubflowSync = () => {
+    if (PUBLISHED_SLUG) return;
+    lastLocalEditRef.current = Date.now(); // bloqueia applyLiveDoc por 3s
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => flushDocSync(false), 1500);
+  };
+
+  // Garante sync antes de fechar/recarregar a página — agora para TODOS (nao so admin)
   React.useEffect(() => {
-    if (!IS_ADMIN || SIMULATE_AS || PUBLISHED_SLUG) return;
-    const onUnload = () => flushDocSync(true);
+    if (PUBLISHED_SLUG) return;
+    const onUnload = () => {
+      try { flushDocSync(true); } catch (_) {}
+    };
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
@@ -2696,6 +2879,16 @@ function App() {
     setOpenNodeId(null);
   };
 
+  // ── Restaurar do fluxo publicado ──
+  // Modal permite escolher quais ambientes restaurar (1 ou varios). Backend faz tudo em lote.
+  const [showRestoreModal, setShowRestoreModal] = React.useState(false);
+  const handleRestoreDone = (result) => {
+    // Se o ambiente atual foi restaurado, recarrega a pagina para pegar a versao limpa do servidor
+    if (result && result.currentRestored) {
+      setTimeout(() => window.location.reload(), 800);
+    }
+  };
+
   // Carrega o último slug publicado do banco (para não perder referência entre sessões/dispositivos)
   // Reexecuta quando o ambiente corrente muda
   React.useEffect(() => {
@@ -2733,8 +2926,12 @@ function App() {
           if (d.data.flowTitleSize != null) setFlowTitleSize(d.data.flowTitleSize);
           if (d.data.legend        != null) setLegend(d.data.legend);
           if (d.data.legendConfig  != null) setLegendConfig(d.data.legendConfig);
-          // Subflows ficam no localStorage — sincronizar junto com o resto
-          if (d.data.subflows) {
+          // Subflows ficam no localStorage — sincronizar junto com o resto.
+          // CRITICO: NAO sobrescreve subflows do LS se o modal esta aberto (pode haver edicoes em curso),
+          // ou se houve edicao local recente (lastLocalEditRef nos ultimos 3s).
+          const modalOpen = modalSessionRef.current;
+          const recentEdit = Date.now() - lastLocalEditRef.current < 3000;
+          if (d.data.subflows && !modalOpen && !recentEdit) {
             try { localStorage.setItem('fluxograma:subflows:v1', JSON.stringify(d.data.subflows)); } catch (_) {}
             window.dispatchEvent(new CustomEvent('subflows-updated'));
           }
@@ -3220,11 +3417,25 @@ function App() {
                      '💾 Salvar'}
                   </button>
                 )}
+                {IS_ADMIN && (
+                  <button className="btn-ghost"
+                          onClick={() => setShowRestoreModal(true)}
+                          title="Substitui o fluxo de trabalho de um ou mais ambientes pelo fluxo publicado de cada um">
+                    ↻ Restaurar do publicado
+                  </button>
+                )}
                 {IS_ADMIN && <button className="btn-primary" onClick={() => setShowPublish(true)}>Publicar</button>}
               </>
             ) : (
               <>
                 <button className="btn-ghost" onClick={() => setShowBackup(true)}>💾 Backup</button>
+                {IS_ADMIN && (
+                  <button className="btn-ghost"
+                          onClick={() => setShowRestoreModal(true)}
+                          title="Substitui o fluxo de trabalho de um ou mais ambientes pelo fluxo publicado">
+                    ↻ Restaurar do publicado
+                  </button>
+                )}
                 <button className="btn-primary" onClick={exitEditor}>✓ Concluir</button>
               </>
             )}
@@ -3427,7 +3638,7 @@ function App() {
                    onClose={handleNodeModalClose}
                    onRequestAccess={!IS_ADMIN && !PUBLISHED_SLUG && !canEditNode(openNode) ? requestAccess : undefined}
                    requestStatus={myRequests[openNode?.id]}
-                   onSubflowChange={IS_ADMIN && !SIMULATE_AS ? debouncedDocSync : undefined} />
+                   onSubflowChange={!PUBLISHED_SLUG ? autoSubflowSync : undefined} />
       )}
       {showPublish && (
         <PublishDialog
@@ -3461,6 +3672,13 @@ function App() {
       {showEnvModal && (
         <EnvironmentModal env={editingEnv} onClose={() => setShowEnvModal(false)}
                           onSaved={handleEnvSaved} />
+      )}
+      {showRestoreModal && (
+        <RestoreFromPublishedModal
+          environments={environments}
+          currentEnv={currentEnv}
+          onClose={() => setShowRestoreModal(false)}
+          onDone={handleRestoreDone} />
       )}
       {showImportFromEnv && (
         <ImportFromEnvModal

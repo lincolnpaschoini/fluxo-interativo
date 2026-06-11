@@ -1077,6 +1077,44 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Restaurar live_doc a partir do publicado (admin only) ───────────────
+  // Body: { environmentIds: number[] } — para cada ambiente, pega o ultimo slug publicado
+  // e copia o doc publicado para o live_doc daquele ambiente.
+  if (req.url === '/api/publish/restore-to-live' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const body = await readBody(req);
+      const reqEnvIds = Array.isArray(body.environmentIds)
+        ? body.environmentIds.map(x => parseInt(x, 10)).filter(Boolean)
+        : [];
+      if (reqEnvIds.length === 0) { sendJson(res, 400, { ok: false, error: 'environmentIds vazio' }); return; }
+      const restored = [], failed = [];
+      for (const envId of reqEnvIds) {
+        try {
+          const slug = await db.getLastPublishedSlug(envId);
+          if (!slug) { failed.push({ envId, reason: 'sem publicacao' }); continue; }
+          const pub = await db.loadPublished(slug, envId);
+          if (!pub) { failed.push({ envId, reason: 'fluxo nao encontrado' }); continue; }
+          // Remove o marker _environmentId injetado por loadPublished antes de salvar
+          const { _environmentId, ...docData } = pub;
+          await db.saveLiveDoc(envId, docData);
+          await db.logAudit(session.email, 'restore_from_published',
+            `Live doc restaurado a partir do publicado (slug "${slug}")`,
+            String(envId), { slug }, envId);
+          restored.push({ envId, slug });
+          // Notifica clientes ouvindo este ambiente
+          notifyMainClients('doc_updated', { by: session.email, tabId: null, envId, restored: true });
+        } catch (e) {
+          failed.push({ envId, reason: e.message });
+        }
+      }
+      notifyMainClients('audit_new', null);
+      sendJson(res, 200, { ok: true, restored, failed });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
   // ── Status do banco (admin only) ─────────────────────────────────────────
 
   if (req.url === '/api/admin/db-status' && req.method === 'GET') {
