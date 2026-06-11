@@ -508,6 +508,59 @@ async function saveLiveDoc(envId, data) {
   );
 }
 
+// Carrega o doc mais recente do ambiente: compara live_doc.updated_at com backup mais recente
+// e devolve o que for mais novo. Garante que o admin sempre veja a versao confiavel.
+async function loadLiveDocOrLatestBackup(envId = 1) {
+  try {
+    const liveRow = await pool.query(
+      'SELECT data, updated_at FROM live_doc WHERE environment_id=$1', [envId]
+    );
+    const bkpRow = await pool.query(
+      'SELECT data, created_at FROM backups WHERE environment_id=$1 ORDER BY created_at DESC LIMIT 1', [envId]
+    );
+    const liveTime = liveRow.rows.length ? new Date(liveRow.rows[0].updated_at).getTime() : 0;
+    const bkpTime  = bkpRow.rows.length  ? new Date(bkpRow.rows[0].created_at).getTime()  : 0;
+    if (bkpTime && bkpTime > liveTime) return bkpRow.rows[0].data;
+    if (liveRow.rows.length) return liveRow.rows[0].data;
+    if (bkpRow.rows.length)  return bkpRow.rows[0].data;
+    if (envId === 1) {
+      const defaultFile = path.join(__dirname, 'default-flow.json');
+      if (fs.existsSync(defaultFile)) return JSON.parse(fs.readFileSync(defaultFile, 'utf8'));
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+// Auto-backup: cria/atualiza um backup "auto.json" do ambiente com o doc atual.
+// Chamado em cada sync para garantir um ponto de recuperacao por ambiente.
+// IMPORTANTE: nao retrocede — so atualiza se o doc tem MAIS conteudo (mais nodes/edges/subflows) que o backup atual,
+// para nao sobrescrever um backup recente com um sync defasado de outra aba.
+async function autoBackup(envId, data) {
+  if (!envId || !data) return;
+  try {
+    const filename = 'auto.json';
+    // Carrega o backup atual
+    const { rows: cur } = await pool.query(
+      'SELECT data FROM backups WHERE filename=$1 AND environment_id=$2', [filename, envId]
+    );
+    if (cur.length) {
+      const curData = cur[0].data;
+      const curScore = (curData.nodes?.length || 0) + (curData.edges?.length || 0) + Object.keys(curData.subflows || {}).length;
+      const newScore = (data.nodes?.length || 0) + (data.edges?.length || 0) + Object.keys(data.subflows || {}).length;
+      // Se o doc novo tem MUITO menos conteudo (mais de 20% de perda), suspeita de sync defasado e NAO sobrescreve
+      if (newScore < curScore * 0.8) {
+        console.warn(`autoBackup: skip envId=${envId} — newScore=${newScore} curScore=${curScore} (possivel sync defasado)`);
+        return;
+      }
+    }
+    await pool.query(
+      `INSERT INTO backups (filename, environment_id, data, created_at) VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (filename) DO UPDATE SET data=$3, environment_id=$2, created_at=NOW()`,
+      [filename, envId, JSON.stringify(data)]
+    );
+  } catch (e) { console.error('autoBackup error:', e.message); }
+}
+
 // ── Fluxos publicados ─────────────────────────────────────────────────────────
 
 async function loadPublished(slug, envId = null) {
@@ -761,7 +814,7 @@ module.exports = {
   init, pool,
   loadUsers, saveUsers,
   getSessionByToken, setSession, setSessionEnvironment, updateSessionAdmins, revokeDeletedUserSessions,
-  loadLiveDoc, saveLiveDoc,
+  loadLiveDoc, saveLiveDoc, loadLiveDocOrLatestBackup, autoBackup,
   loadPublished, savePublished, publishedExists, getLastPublishedSlug, listPublishedByEnv, listPublishedEnvsBySlug,
   listBackups, saveBackup, loadBackup,
   saveImage, loadImage,

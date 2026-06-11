@@ -2141,6 +2141,127 @@ function EnvironmentModal({ env, onClose, onSaved }) {
   );
 }
 
+// ─── Modal: restaurar live_doc a partir de um backup (admin only) ──
+function RestoreFromBackupModal({ currentEnv, onClose, onStart, onDone }) {
+  const [backups, setBackups] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [selectedFile, setSelectedFile] = React.useState(null);
+  const [step, setStep] = React.useState('select'); // select | confirming | loading | error | done
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    fetch('/api/backup/list')
+      .then(r => r.json())
+      .then(d => { setLoading(false); if (d.ok) setBackups(d.files || []); })
+      .catch(() => { setLoading(false); setError('Erro ao carregar backups.'); });
+  }, []);
+
+  const fmtDate = (iso) => {
+    try { return new Date(iso).toLocaleString('pt-BR'); } catch { return iso; }
+  };
+  const fmtSize = (bytes) => {
+    if (!bytes && bytes !== 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
+    return `${(bytes/1024/1024).toFixed(2)} MB`;
+  };
+
+  const confirm = async () => {
+    if (!selectedFile) return;
+    setStep('loading'); setError(null);
+    onStart && onStart();
+    try {
+      const r = await fetch('/api/backup/restore-to-live', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: selectedFile, environmentId: currentEnv?.id }),
+      });
+      const d = await r.json();
+      if (!d.ok) { setError(d.error || 'Erro ao restaurar.'); setStep('select'); return; }
+      setStep('done');
+      onDone && onDone({ currentRestored: true });
+    } catch (e) { setError('Erro de conexao.'); setStep('select'); }
+  };
+
+  return (
+    <div className="sf-modal-overlay" onClick={onClose}>
+      <div className="sf-modal" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()}>
+        <button className="sf-close" onClick={onClose}>×</button>
+        <div className="sf-header">
+          <div className="sf-eyebrow" style={{ color: '#3d8c4d' }}>RESTAURAR DO BACKUP</div>
+          <h2 className="sf-title" style={{ fontSize: 20, marginBottom: 4 }}>Restaurar a partir de um backup</h2>
+          <p className="sf-sub">Substitui o fluxo de trabalho do ambiente <b>{currentEnv?.name}</b> pelo conteudo do backup selecionado.</p>
+        </div>
+
+        <div style={{ padding: '0 32px 28px' }}>
+          {error && <div style={{ marginBottom: 12, color: '#a52828', fontSize: 13 }}>{error}</div>}
+          {loading && <div style={{ padding: '20px 0', color: '#6b6b66', textAlign: 'center', fontSize: 13 }}>Carregando…</div>}
+
+          {!loading && step === 'select' && (
+            <>
+              {backups.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#6b6b66', margin: 0 }}>Nenhum backup encontrado neste ambiente.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
+                  {backups.map(bk => (
+                    <label key={bk.filename} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                      borderRadius: 7, cursor: 'pointer',
+                      background: selectedFile === bk.filename ? '#e8f5e9' : '#fafaf9',
+                      border: '1.5px solid ' + (selectedFile === bk.filename ? '#3d8c4d' : 'rgba(0,0,0,0.08)'),
+                    }}>
+                      <input type="radio" name="backup" checked={selectedFile === bk.filename}
+                             onChange={() => setSelectedFile(bk.filename)}
+                             style={{ accentColor: '#3d8c4d', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {bk.filename}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b6b66', marginTop: 2 }}>
+                          {fmtDate(bk.mtime)} · {fmtSize(bk.size)}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {step === 'confirming' && (
+            <div style={{ background: '#fff5e6', border: '1px solid #f5c97a', borderRadius: 8, padding: '12px 14px' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>⚠ Atencao</div>
+              <div style={{ fontSize: 13, color: '#3a3a36', lineHeight: 1.5 }}>
+                O fluxo de trabalho do ambiente <b>"{currentEnv?.name}"</b> sera <b>completamente substituido</b> pelo conteudo do backup <b>"{selectedFile}"</b>. As alteracoes atuais que nao estiverem no backup serao perdidas.
+              </div>
+            </div>
+          )}
+          {step === 'loading' && (
+            <div style={{ padding: '20px 0', color: '#6b6b66', textAlign: 'center', fontSize: 13 }}>Restaurando…</div>
+          )}
+          {step === 'done' && (
+            <div style={{ padding: '12px 0', color: '#3d8c4d', fontSize: 13, fontWeight: 600 }}>✓ Restaurado com sucesso. A pagina vai recarregar.</div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 16 }}>
+            {step === 'select' && (
+              <>
+                <button className="btn-ghost" onClick={onClose}>Cancelar</button>
+                <button className="btn-primary" disabled={!selectedFile} onClick={() => setStep('confirming')}>Continuar →</button>
+              </>
+            )}
+            {step === 'confirming' && (
+              <>
+                <button className="btn-ghost" onClick={() => setStep('select')}>← Voltar</button>
+                <button className="btn-primary" onClick={confirm}>Confirmar e restaurar</button>
+              </>
+            )}
+            {step === 'done' && <button className="btn-ghost" disabled>Aguarde…</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Modal: restaurar live_doc a partir do publicado (admin only) ──
 function RestoreFromPublishedModal({ environments, currentEnv, onClose, onDone, onStart }) {
   // selected = Set de envIds
@@ -2578,8 +2699,10 @@ function App() {
     try {
       // 1) Cancela autosave debounced pendente
       if (syncTimer.current) clearTimeout(syncTimer.current);
-      // 2) Se admin (e nao simulando/publicado), faz flush sincrono do estado atual no ambiente CORRENTE
-      if (IS_ADMIN && !SIMULATE_AS && !PUBLISHED_SLUG && currentEnv) {
+      // 2) Se admin (e nao simulando/publicado), faz flush sincrono do estado atual no ambiente CORRENTE.
+      //    SE houve restore recente neste env (isRestoringRef true), PULA o flush — o servidor ja tem a versao correta
+      //    e o estado React local pode estar defasado.
+      if (IS_ADMIN && !SIMULATE_AS && !PUBLISHED_SLUG && currentEnv && !isRestoringRef.current) {
         try {
           const payload = buildDocPayload();
           // Garante explicitamente o env do payload = ambiente atual (nao o destino)
@@ -2892,9 +3015,34 @@ function App() {
   // CRITICO: durante o restore, NENHUM sync local pode disparar porque o estado React local
   // ainda esta com a versao antiga; se um sync sair, vai sobrescrever live_doc com versao antiga.
   const [showRestoreModal, setShowRestoreModal] = React.useState(false);
-  const isRestoringRef = React.useRef(false); // true durante e logo apos um restore
+  const [showRestoreBackupModal, setShowRestoreBackupModal] = React.useState(false);
+  // Inicializa isRestoringRef como TRUE se ouve um restore muito recente neste ambiente.
+  // Isso protege contra "primeiro sync apos reload" que poderia enviar estado defasado.
+  const RESTORE_PROTECTION_MS = 5000;
+  const isRestoringRef = React.useRef((() => {
+    try {
+      const envId = INITIAL_CURRENT_ENV?.id;
+      if (!envId) return false;
+      const ts = parseInt(localStorage.getItem(`fluxograma:restored-at:${envId}`) || '0', 10);
+      return ts && (Date.now() - ts < RESTORE_PROTECTION_MS);
+    } catch (_) { return false; }
+  })());
+  // Limpa a flag depois da janela de protecao, se foi setada via LS no boot
+  React.useEffect(() => {
+    if (!isRestoringRef.current) return;
+    const t = setTimeout(() => { isRestoringRef.current = false; }, RESTORE_PROTECTION_MS);
+    return () => clearTimeout(t);
+  }, []);
+
   const handleRestoreStart = () => {
     isRestoringRef.current = true;
+    // Marca no LS o timestamp do restore para o ambiente atual (caso a pagina recarregue,
+    // o boot le esse timestamp e continua bloqueando syncs por uns segundos).
+    try {
+      if (currentEnv?.id) {
+        localStorage.setItem(`fluxograma:restored-at:${currentEnv.id}`, String(Date.now()));
+      }
+    } catch (_) {}
     // Cancela qualquer sync debounced pendente
     if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null; }
   };

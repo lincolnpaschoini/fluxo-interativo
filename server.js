@@ -393,7 +393,7 @@ async function serveMainApp(req, res) {
     }
     // currentEnvId pode ser null quando ha multiplos envs e nenhum foi escolhido → cliente mostra picker
     const currentEnv = simUserEnvs.find(e => e.id === currentEnvId) || null;
-    const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+    const liveDoc = currentEnv ? await db.loadLiveDocOrLatestBackup(currentEnv.id) : null;
     serveHtml(res, { email, isAdmin, name: simUser.name }, null, email, liveDoc, simUserEnvs, currentEnv);
     return;
   }
@@ -410,7 +410,7 @@ async function serveMainApp(req, res) {
       await db.setSessionEnvironment(session._token, currentEnvId);
     }
     const currentEnv = envs.find(e => e.id === currentEnvId) || null;
-    const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+    const liveDoc = currentEnv ? await db.loadLiveDocOrLatestBackup(currentEnv.id) : null;
     serveHtml(res, session, null, null, liveDoc, envs, currentEnv);
     return;
   }
@@ -450,7 +450,7 @@ p{color:#555;line-height:1.6}</style></head><body>
   const currentEnvId = envs.length === 1 ? envs[0].id : null;
   await db.setSession(token, { ...userInfo, currentEnvironmentId: currentEnvId });
   const currentEnv = envs.find(e => e.id === currentEnvId) || null;
-  const liveDoc = currentEnv ? await db.loadLiveDoc(currentEnv.id) : null;
+  const liveDoc = currentEnv ? await db.loadLiveDocOrLatestBackup(currentEnv.id) : null;
   serveHtml(res, userInfo, token, null, liveDoc, envs, currentEnv);
 }
 
@@ -883,11 +883,13 @@ const server = http.createServer(async (req, res) => {
       }
       if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
       const effectiveBy = (body.simulateAs && session.isAdmin) ? body.simulateAs : session.email;
+      let savedDoc;
       if (body._baseNodes != null) {
         const serverDoc = await db.loadLiveDoc(envId);
         const base = { nodes: body._baseNodes, edges: body._baseEdges || [], subflows: body._baseSubflows || {} };
         const merged = serverDoc ? mergeDoc(base, body, serverDoc) : body;
         await db.saveLiveDoc(envId, merged);
+        savedDoc = merged;
         if (serverDoc) {
           const auditBefore = body.auditBaseline || serverDoc;
           const changes = diffDocs(auditBefore, merged);
@@ -898,7 +900,10 @@ const server = http.createServer(async (req, res) => {
         }
       } else {
         await db.saveLiveDoc(envId, body);
+        savedDoc = body;
       }
+      // Auto-backup: garante um ponto de recuperacao por ambiente sem o admin precisar lembrar de salvar
+      try { await db.autoBackup(envId, savedDoc); } catch (_) {}
       notifyMainClients('doc_updated', { by: effectiveBy, tabId: body._tabId || null, envId });
       sendJson(res, 200, { ok: true });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -921,7 +926,7 @@ const server = http.createServer(async (req, res) => {
       if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
     }
     try {
-      const data = await db.loadLiveDoc(envId);
+      const data = await db.loadLiveDocOrLatestBackup(envId);
       if (!data) { sendJson(res, 404, { ok: false }); return; }
       sendJson(res, 200, { ok: true, data });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
@@ -1073,6 +1078,37 @@ const server = http.createServer(async (req, res) => {
       notifyMainClients('audit_new', null);
       notifySseClients(slug, envId);
       sendJson(res, 200, { ok: true, slug });
+    } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
+    return;
+  }
+
+  // ── Restaurar live_doc a partir de um backup (admin only) ───────────────
+  // Body: { filename: string, environmentId?: number } — copia o conteudo do backup para o live_doc
+  if (req.url === '/api/backup/restore-to-live' && req.method === 'POST') {
+    const session = await getSession(req);
+    if (!session || !session.isAdmin) { sendJson(res, 403, { ok: false }); return; }
+    try {
+      const body = await readBody(req);
+      const filename = (body.filename || '').replace(/[/\\]/g, '');
+      if (!filename) { sendJson(res, 400, { ok: false, error: 'filename obrigatorio' }); return; }
+      let envId = parseInt(body.environmentId, 10) || null;
+      if (envId) {
+        const ok = await db.userHasEnvironmentAccess(session.email, session.isAdmin, envId);
+        if (!ok) { sendJson(res, 403, { ok: false, error: 'Sem acesso a este ambiente' }); return; }
+      } else {
+        envId = await getEffectiveEnvId(session);
+      }
+      if (!envId) { sendJson(res, 412, { ok: false, error: 'Selecione um ambiente.' }); return; }
+      // Busca o backup pelo filename + env (defesa contra restaurar backup de outro env)
+      const data = await db.loadBackup(filename, envId);
+      if (!data) { sendJson(res, 404, { ok: false, error: 'Backup nao encontrado neste ambiente' }); return; }
+      await db.saveLiveDoc(envId, data);
+      await db.logAudit(session.email, 'restore_from_backup',
+        `Live doc restaurado a partir do backup "${filename}"`,
+        filename, { filename }, envId);
+      notifyMainClients('audit_new', null);
+      notifyMainClients('doc_updated', { by: session.email, tabId: null, envId, restoredFromBackup: true });
+      sendJson(res, 200, { ok: true, envId });
     } catch (e) { sendJson(res, 500, { ok: false, error: e.message }); }
     return;
   }
